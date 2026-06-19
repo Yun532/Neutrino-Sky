@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Neutrino Sky</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <canvas id="sky"></canvas>
+
+  <div class="hud top-left">
+    <h1>Neutrino Sky</h1>
+    <div class="sub">IceCube SkyLLH full-sky TS viewer</div>
+    <div class="controls">
+      <button id="reset">Reset</button>
+      <button id="zoomIn">+</button>
+      <button id="zoomOut">-</button>
+      <button id="toggleCells">Cells on</button>
+      <button id="toggleSmooth">Smooth on</button>
+      <button id="toggleMilkyWay">Milky Way on</button>
+      <button id="toggleAlerts">Alerts on</button>
+      <button id="toggleLabels">Labels</button>
+      <select id="markerFilter">
+        <option value="all">All markers</option>
+        <option value="known" selected>Known sources</option>
+        <option value="candidate">Candidates</option>
+        <option value="dense">Dense/local map</option>
+      </select>
+      <select id="catalogPreset">
+        <option value="off" selected>Catalog off</option>
+        <option value="core">Core candidates</option>
+        <option value="snr">SNR (Green)</option>
+        <option value="pulsar">Pulsars (ATNF)</option>
+        <option value="tev">TeV sources</option>
+        <option value="galactic">Galactic accelerators</option>
+        <option value="galaxy">Galaxies / starburst</option>
+        <option value="agn">AGN / blazars</option>
+        <option value="alerts">IceCube alerts</option>
+        <option value="fermi">4FGL associations</option>
+        <option value="parent">All parent catalogs</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="hud legend">
+    <div><span class="symbol highlight-dot"></span> highlighted source</div>
+    <div><span class="symbol reference-dot"></span> reference source</div>
+    <div><span class="symbol candidate-dot"></span> candidate peak</div>
+    <div><span class="symbol ring solid-ring"></span> dense/local outline</div>
+    <div><span class="symbol extended-ring"></span> extended reference</div>
+    <div><span class="symbol plane-line"></span> Milky Way template</div>
+    <div><span class="symbol alert-dot"></span> IceCube alert</div>
+    <div><span class="symbol catalog-dot"></span> catalog overlay</div>
+  </div>
+
+  <div id="skyReadout" class="hud sky-readout">Move over the sky for RA/Dec and nearest TS</div>
+
+  <div class="hud brightest">
+    <div class="panel-title">
+      Display TS Ranking
+      <button id="collapseList" class="mini-btn">-</button>
+    </div>
+    <div class="panel-note">mixed known / dense / candidate, local TS only</div>
+    <div id="brightList"></div>
+  </div>
+
+  <aside id="drawer" class="drawer closed">
+    <button id="minDrawer" class="minimize">-</button>
+    <button id="closeDrawer" class="close">x</button>
+    <div id="drawerContent"></div>
+  </aside>
+  <button id="drawerTab" class="drawer-tab">Details</button>
+
+  <script src="data.js"></script>
+  <script src="healpix_cells.js"></script>
+  <script src="smooth_ts.js"></script>
+  <script src="smooth_raster.js"></script>
+  <script src="milky_way_polygons.js"></script>
+  <script src="reference_sources.js"></script>
+  <script src="catalog_overlays.js"></script>
+  <script src="local_contours.js"></script>
+  <script src="partial_dense.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
