@@ -5,6 +5,9 @@ const drawer = document.getElementById("drawer");
 const drawerContent = document.getElementById("drawerContent");
 const filter = document.getElementById("markerFilter");
 const catalogPreset = document.getElementById("catalogPreset");
+const coordForm = document.getElementById("coordForm");
+const coordRa = document.getElementById("coordRa");
+const coordDec = document.getElementById("coordDec");
 const subTitle = document.querySelector(".sub");
 const skyReadout = document.getElementById("skyReadout");
 const CELLS = window.HEALPIX_CELLS_NSIDE64 || [];
@@ -82,6 +85,22 @@ function wrapRa(v) {
 function wrapSigned(v) {
   let x = ((v + 180) % 360 + 360) % 360 - 180;
   return x === -180 ? 180 : x;
+}
+
+function parseCoordInput() {
+  const rawRa = (coordRa?.value || "").trim();
+  const rawDec = (coordDec?.value || "").trim();
+  const pasted = rawRa.split(/[,\s]+/).filter(Boolean);
+  const parts = pasted.length >= 2 ? pasted : [rawRa, rawDec];
+  if (parts.length < 2) return null;
+  const ra = Number(parts[0]);
+  const dec = Number(parts[1]);
+  if (!Number.isFinite(ra) || !Number.isFinite(dec) || dec < -90 || dec > 90) return null;
+  return { ra: wrapRa(ra), dec };
+}
+
+function markCoordInputInvalid(invalid) {
+  coordForm?.classList.toggle("invalid", invalid);
 }
 
 function sep(a, b) {
@@ -2126,6 +2145,27 @@ document.getElementById("toggleLabels").onclick = () => {
   showLabels = !showLabels;
   draw();
 };
+if (coordForm) {
+  coordForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const coord = parseCoordInput();
+    if (!coord) {
+      markCoordInputInvalid(true);
+      return;
+    }
+    markCoordInputInvalid(false);
+    if (coordRa) coordRa.value = coord.ra.toFixed(4);
+    if (coordDec) coordDec.value = coord.dec.toFixed(4);
+    openDrawer({
+      id: `input_${Date.now()}`,
+      name: "Input direction",
+      kind: "clicked",
+      ra: coord.ra,
+      dec: coord.dec,
+    });
+  });
+  coordForm.addEventListener("input", () => markCoordInputInvalid(false));
+}
 filter.onchange = () => {
   populateBright();
   draw();

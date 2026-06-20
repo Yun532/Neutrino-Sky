@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Neutrino Sky</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=coord-input4" />
 </head>
 <body>
   <canvas id="sky"></canvas>
@@ -56,6 +56,14 @@
 
   <div id="skyReadout" class="hud sky-readout"></div>
 
+  <div class="hud coord-jump">
+    <form id="coordForm" class="coord-form">
+      <input id="coordRa" type="text" inputmode="decimal" autocomplete="off" placeholder="RA" />
+      <input id="coordDec" type="text" inputmode="decimal" autocomplete="off" placeholder="Dec" />
+      <button type="submit">Go</button>
+    </form>
+  </div>
+
   <div class="hud brightest">
     <div class="panel-title">
       Display TS Ranking
@@ -81,6 +89,6 @@
   <script src="catalog_overlays.js"></script>
   <script src="local_contours.js"></script>
   <script src="partial_dense.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=coord-input4"></script>
 </body>
 </html>
