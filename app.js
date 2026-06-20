@@ -110,6 +110,18 @@ function projectionScale() {
   return baseProjectionScale() * view.zoom;
 }
 
+function markerZoomScale() {
+  return clamp(1 + Math.log2(Math.max(view.zoom, 1)) * 0.10, 0.85, 1.45);
+}
+
+function alertZoomScale() {
+  return clamp(1 + Math.log2(Math.max(view.zoom, 1)) * 0.10, 0.85, 3.0);
+}
+
+function catalogZoomScale(s) {
+  return s.layer === "neutrino_alert" ? alertZoomScale() : markerZoomScale();
+}
+
 function baseProjectionScale() {
   const w = canvas.width;
   const h = canvas.height;
@@ -397,8 +409,8 @@ function catalogStyle(s) {
     const r = clamp(1.5 + signalness * 2.2 + energy * 0.22, 1.7, 5.2);
     const goldLike = signalness >= 0.5;
     return {
-      fill: goldLike ? `rgba(214,174,67,${0.12 + signalness * 0.18})` : `rgba(151,133,93,${0.05 + signalness * 0.11})`,
-      stroke: goldLike ? `rgba(138,104,21,${0.44 + signalness * 0.20})` : `rgba(106,93,65,${0.24 + signalness * 0.18})`,
+      fill: goldLike ? `rgba(214,174,67,${0.15 + signalness * 0.20})` : `rgba(151,133,93,${0.07 + signalness * 0.12})`,
+      stroke: goldLike ? `rgba(138,104,21,${0.50 + signalness * 0.22})` : `rgba(106,93,65,${0.30 + signalness * 0.18})`,
       r,
       shape: goldLike ? "diamond" : "cross",
     };
@@ -684,7 +696,7 @@ function drawMarker(m) {
   const role = markerRole(m);
   const isSelected = Boolean(selected && selected.id === m.id);
   const baseR = role === "highlighted" ? 5.4 : role === "candidate" ? 2.5 : role === "galactic" ? 3.9 : 3.7;
-  const r = baseR * devicePixelRatio;
+  const r = baseR * markerZoomScale() * devicePixelRatio;
   if (p.x < -40 || p.x > canvas.width + 40 || p.y < -40 || p.y > canvas.height + 40) return;
 
   ctx.save();
@@ -747,7 +759,7 @@ function drawCatalogSource(s) {
   const p = skyToXY(s.ra, s.dec);
   if (p.x < -30 || p.x > canvas.width + 30 || p.y < -30 || p.y > canvas.height + 30) return;
   const style = catalogStyle(s);
-  const r = style.r * devicePixelRatio;
+  const r = style.r * catalogZoomScale(s) * devicePixelRatio;
   const isSelected = selectedCatalog?.id === s.id;
   ctx.save();
   ctx.fillStyle = style.fill;
@@ -816,12 +828,8 @@ function markerDrawOrder(markers) {
 
 function draw() {
   if (subTitle) {
-    const catalogText = (catalogPreset?.value || "off") === "off"
-      ? ""
-      : `, catalog ${filteredCatalogSources().length} sources`;
-    subTitle.textContent = (smoothSky
-      ? `nside64-smoothed raster, FWHM ${SMOOTH_RASTER?.fwhm_deg ?? SMOOTH?.fwhm_deg ?? 1} deg, display max ${SKY_SMOOTH_DISPLAY_MAX.toFixed(1)}`
-      : `official likelihood samples, nside64 HEALPix cells, display max ${SKY_CELL_DISPLAY_MAX.toFixed(1)}`) + catalogText;
+    const catalogText = (catalogPreset?.value || "off") === "off" ? "" : ` · ${filteredCatalogSources().length} catalog sources`;
+    subTitle.textContent = `IceCube SkyLLH full-sky TS viewer${catalogText}`;
   }
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#f4f5f1";
@@ -924,12 +932,12 @@ function updateSkyReadout(event) {
   const y = (event.clientY - rect.top) * devicePixelRatio;
   const sky = xyToSky(x, y);
   if (!sky) {
-    skyReadout.textContent = "Move over the sky for RA/Dec and nearest TS";
+    skyReadout.textContent = "";
     return;
   }
   const pix = nearestPixel(sky.ra, sky.dec);
   const shown = displayTSForPixel(pix.index, pix);
-  skyReadout.textContent = `RA ${sky.ra.toFixed(3)} deg, Dec ${sky.dec.toFixed(3)} deg | nearest nside64 TS ${pix.TS.toFixed(2)} | shown ${shown.toFixed(2)} | sep ${pix.sep.toFixed(2)} deg`;
+  skyReadout.textContent = `RA ${sky.ra.toFixed(3)}deg · Dec ${sky.dec.toFixed(3)}deg · TS ${shown.toFixed(2)}`;
 }
 
 function localPoints(m, radius) {
@@ -1096,7 +1104,7 @@ function drawLocalAlertCount(g, c, margin, plot, count) {
 function setupLocalCoordinateReadout(c, m, bounds, pts) {
   const readout = document.createElement("div");
   readout.className = "coord-readout";
-  readout.textContent = "Hover map for x/y, RA/Dec, nearest TS";
+  readout.textContent = "";
   drawerContent.appendChild(readout);
 
   const nearestPoint = (x, y) => {
@@ -1119,7 +1127,7 @@ function setupLocalCoordinateReadout(c, m, bounds, pts) {
     const py = ((event.clientY - rect.top) / rect.height) * c.height;
     const { margin, plot, xMin, xMax, yMin, yMax } = bounds;
     if (px < margin || px > margin + plot || py < margin || py > margin + plot) {
-      readout.textContent = "Hover map for x/y, RA/Dec, nearest TS";
+      readout.textContent = "";
       return;
     }
     const x = xMax - ((px - margin) / plot) * (xMax - xMin);
@@ -1132,7 +1140,7 @@ function setupLocalCoordinateReadout(c, m, bounds, pts) {
     readout.textContent = `x=${x.toFixed(3)}deg, y=${y.toFixed(3)}deg | RA=${ra.toFixed(4)}deg, Dec=${dec.toFixed(4)}deg${nearText}`;
   });
   c.addEventListener("mouseleave", () => {
-    readout.textContent = "Hover map for x/y, RA/Dec, nearest TS";
+    readout.textContent = "";
   });
 }
 
@@ -1449,6 +1457,399 @@ function catalogNumber(value, digits = 2) {
   return Number.isFinite(value) ? value.toFixed(digits) : "-";
 }
 
+function hasCatalogValue(value) {
+  return value !== null && value !== undefined && value !== "";
+}
+
+function formatScientific(value, digits = 2) {
+  return Number.isFinite(value) ? value.toExponential(digits) : "-";
+}
+
+function formatAgeYears(years) {
+  if (!Number.isFinite(years) || years <= 0) return "";
+  if (years < 1e3) return `${catalogNumber(years, 0)} yr`;
+  if (years < 1e6) return `${catalogNumber(years / 1e3, years < 1e5 ? 1 : 0)} kyr`;
+  if (years < 1e9) return `${catalogNumber(years / 1e6, years < 1e8 ? 1 : 0)} Myr`;
+  return `${catalogNumber(years / 1e9, 2)} Gyr`;
+}
+
+function pulsarAgeYears(source) {
+  if (Number.isFinite(source.ageYears)) return source.ageYears;
+  if (Number.isFinite(source.p0) && Number.isFinite(source.p1) && source.p1 > 0) {
+    return source.p0 / (2 * source.p1) / (365.25 * 24 * 3600);
+  }
+  return null;
+}
+
+function snrTypeLabel(value) {
+  const type = String(value || "").trim();
+  if (!type) return "";
+  const parts = [];
+  if (type.includes("S")) parts.push("shell");
+  if (type.includes("F")) parts.push("filled-center");
+  if (type.includes("C")) parts.push("composite");
+  const suffix = type.includes("?") ? ", uncertain" : "";
+  return parts.length ? `${type} (${parts.join(" + ")}${suffix})` : type;
+}
+
+function infoRows(rows) {
+  const html = rows
+    .filter((row) => hasCatalogValue(row.value))
+    .map((row) => `<div class="info-row"><span>${htmlEscape(row.label)}</span><b>${row.value}</b></div>`)
+    .join("");
+  return html;
+}
+
+function infoSection(title, rows) {
+  const body = infoRows(rows);
+  if (!body) return "";
+  return `<section class="info-card"><h3>${htmlEscape(title)}</h3>${body}</section>`;
+}
+
+function infoDetails(title, body, open = false) {
+  if (!body) return "";
+  return `<details class="info-details"${open ? " open" : ""}><summary>${htmlEscape(title)}</summary>${body}</details>`;
+}
+
+function catalogDisplayName(source) {
+  return source.name || source.sourceName || source.id;
+}
+
+function typeParameterRows(source) {
+  const z = source.redshift ?? source.z;
+  const tevAssoc = source.assocTev || source.tevcat || "";
+  const alertBounds = source.raErrPlusDeg
+    ? `RA +${catalogNumber(source.raErrPlusDeg, 2)}/-${catalogNumber(source.raErrMinusDeg, 2)}deg, Dec +${catalogNumber(source.decErrPlusDeg, 2)}/-${catalogNumber(source.decErrMinusDeg, 2)}deg`
+    : "";
+  const age = formatAgeYears(pulsarAgeYears(source) ?? source.ageYears);
+  if (source.layer === "neutrino_alert") {
+    return [
+      { label: "Event MJD", value: Number.isFinite(source.mjd) ? catalogNumber(source.mjd, 3) : "" },
+      { label: "Energy", value: Number.isFinite(source.energyTeV) ? `${catalogNumber(source.energyTeV, 0)} TeV` : "" },
+      { label: "Signalness", value: Number.isFinite(source.signalness) ? catalogNumber(source.signalness, 2) : "" },
+      { label: "90% uncertainty", value: alertBounds },
+      { label: "Nearest source", value: source.nearestSource && !source.nearestSource.startsWith("--") ? htmlEscape(source.nearestSource) : "" },
+    ];
+  }
+  if (source.layer === "pulsar") {
+    return [
+      { label: "Period", value: Number.isFinite(source.p0) ? `${catalogNumber(source.p0, 5)} s` : "" },
+      { label: "Pdot", value: Number.isFinite(source.p1) ? formatScientific(source.p1) : "" },
+      { label: "Age", value: age },
+      { label: "Edot", value: Number.isFinite(source.edot) ? `${formatScientific(source.edot)} erg/s` : "" },
+      { label: "Distance", value: Number.isFinite(source.distanceKpc) ? `${catalogNumber(source.distanceKpc, 2)} kpc` : "" },
+      { label: "Edot/d2", value: Number.isFinite(source.edotOverD2) ? formatScientific(source.edotOverD2) : "" },
+      { label: "Association", value: htmlEscape(source.association || "") },
+    ];
+  }
+  if (source.layer === "snr" || source.layer === "tev_snr" || source.layer === "tev_pwn") {
+    return [
+      { label: "Source class", value: htmlEscape(snrTypeLabel(source.class)) },
+      { label: "Angular size", value: Number.isFinite(source.sizeDeg) ? `${catalogNumber(source.sizeDeg, 3)} deg` : htmlEscape(source.extended || "") },
+      { label: "Age", value: formatAgeYears(source.ageYears) },
+      { label: "Distance", value: Number.isFinite(source.distanceKpc) ? `${catalogNumber(source.distanceKpc, 2)} kpc` : "" },
+      { label: "1 GHz flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz, 2)} Jy` : "" },
+      { label: "Radio index", value: Number.isFinite(source.spectralIndex) ? catalogNumber(source.spectralIndex, 2) : "" },
+      { label: "TeV flux", value: Number.isFinite(source.fluxTeV) ? `${formatScientific(source.fluxTeV)} cm^-2 s^-1` : "" },
+      { label: "TeV energy flux", value: Number.isFinite(source.energyFluxTeV) ? `${formatScientific(source.energyFluxTeV)} erg cm^-2 s^-1` : "" },
+      { label: "Associated pulsar", value: htmlEscape(source.associatedPulsar || "") },
+    ];
+  }
+  if (source.layer === "tev" || source.layer === "microquasar") {
+    return [
+      { label: "Source class", value: htmlEscape(source.class || source.sourceClass || "") },
+      { label: "TeV flux", value: Number.isFinite(source.fluxTeV) ? `${formatScientific(source.fluxTeV)} cm^-2 s^-1` : "" },
+      { label: "TeV energy flux", value: Number.isFinite(source.energyFluxTeV) ? `${formatScientific(source.energyFluxTeV)} erg cm^-2 s^-1` : "" },
+      { label: "Extension", value: Number.isFinite(source.sizeDeg) ? `${catalogNumber(source.sizeDeg, 3)} deg` : htmlEscape(source.extended || "") },
+      { label: "Significance", value: Number.isFinite(source.significance) ? catalogNumber(source.significance, 2) : "" },
+      { label: "Association", value: htmlEscape(source.association || source.tevcat || source.seenBy || "") },
+    ];
+  }
+  if (source.layer === "agn" || source.layer === "fermi") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
+      { label: "Redshift", value: Number.isFinite(z) ? catalogNumber(z, 4) : "" },
+      { label: "Radio flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz, 2)} Jy` : "" },
+      { label: "Gamma energy flux", value: Number.isFinite(source.energyFlux100) ? `${formatScientific(source.energyFlux100)} erg cm^-2 s^-1` : "" },
+      { label: "Gamma flux >1 GeV", value: Number.isFinite(source.flux1000) ? `${formatScientific(source.flux1000)} ph cm^-2 s^-1` : "" },
+      { label: "Variability", value: Number.isFinite(source.variability) ? catalogNumber(source.variability, 2) : "" },
+      { label: "4FGL source", value: source.sourceName && source.catalog === "4FGL-DR4" ? htmlEscape(source.sourceName) : "" },
+      { label: "TeV association", value: htmlEscape(tevAssoc) },
+    ];
+  }
+  if (source.layer === "galaxy") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
+      { label: "Redshift", value: Number.isFinite(z) ? catalogNumber(z, 4) : "" },
+      { label: "Distance", value: Number.isFinite(source.distanceMpc) ? `${catalogNumber(source.distanceMpc, 2)} Mpc` : "" },
+      { label: "SFR", value: Number.isFinite(source.sfr) ? `${catalogNumber(source.sfr, 2)} Msun/yr` : "" },
+      { label: "IR luminosity", value: Number.isFinite(source.irLuminosity) ? `${formatScientific(source.irLuminosity)} Lsun` : "" },
+      { label: "Radio flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz, 2)} Jy` : "" },
+      { label: "Gamma energy flux", value: Number.isFinite(source.energyFlux100) ? `${formatScientific(source.energyFlux100)} erg cm^-2 s^-1` : "" },
+    ];
+  }
+  return [
+    { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
+    { label: "Redshift", value: Number.isFinite(z) ? catalogNumber(z, 4) : "" },
+    { label: "Distance", value: Number.isFinite(source.distanceKpc) ? `${catalogNumber(source.distanceKpc, 2)} kpc` : "" },
+    { label: "Flux", value: Number.isFinite(source.fluxTeV) ? formatScientific(source.fluxTeV) : "" },
+  ];
+}
+
+function sourceInfoSections(source, pix, shown) {
+  const match = source.match || {};
+  const candidate = match.candidateName
+    ? `${htmlEscape(match.candidateName)}, ${catalogNumber(match.candidateSepDeg, 3)}deg, TS ${catalogNumber(match.candidateTs)}${match.candidateDense ? " (dense)" : ""}`
+    : "";
+  const bounds = source.raErrPlusDeg
+    ? `RA +${catalogNumber(source.raErrPlusDeg, 2)}/-${catalogNumber(source.raErrMinusDeg, 2)}deg, Dec +${catalogNumber(source.decErrPlusDeg, 2)}/-${catalogNumber(source.decErrMinusDeg, 2)}deg`
+    : "";
+  const tevAssoc = source.assocTev || source.tevcat || "";
+  const size = source.extended || source.sizeDeg || source.extensionDeg
+    ? htmlEscape(source.extended || `${catalogNumber(source.sizeDeg || source.extensionDeg, 3)} deg`)
+    : "";
+  const z = source.redshift ?? source.z;
+  const mag = source.vmag ?? source.magV ?? source.opticalMag ?? source.apparentMag;
+  const summary = infoSection("Summary", [
+    { label: "Catalog", value: htmlEscape(source.catalog || "") },
+    { label: "Type", value: htmlEscape(source.class || source.sourceClass || source.layer || "") },
+    { label: "Rank TS", value: catalogNumber(bestCatalogTS(source)) },
+    { label: "Position", value: `RA ${source.ra.toFixed(4)}deg, Dec ${source.dec.toFixed(4)}deg` },
+    { label: "Candidate", value: candidate },
+  ]);
+  const keyParams = infoSection("Source Parameters", typeParameterRows(source));
+  const skyllh = infoSection("SkyLLH Match", [
+    { label: "Nearest TS", value: `${pix.TS.toFixed(2)} (shown ${shown.toFixed(2)})` },
+    { label: "ns / gamma", value: `${pix.ns.toFixed(2)} / ${pix.gamma.toFixed(2)}` },
+    { label: "Pixel sep", value: `${pix.sep.toFixed(2)}deg` },
+  ]);
+  const more = [
+    infoSection("Identity", [
+      { label: "Catalog name", value: source.sourceName && source.sourceName !== source.name ? htmlEscape(source.sourceName) : "" },
+      { label: "Layer", value: htmlEscape(source.layer || "") },
+      { label: "Role", value: htmlEscape(source.catalogRole || "") },
+    ]),
+    infoSection("Position", [
+      { label: "RA", value: `${source.ra.toFixed(4)}deg` },
+      { label: "Dec", value: `${source.dec.toFixed(4)}deg` },
+      { label: "Galactic l", value: Number.isFinite(source.glon) ? `${catalogNumber(source.glon, 3)}deg` : "" },
+      { label: "Galactic b", value: Number.isFinite(source.glat) ? `${catalogNumber(source.glat, 3)}deg` : "" },
+      { label: "Size / extension", value: size },
+      { label: "90% bounds", value: bounds },
+    ]),
+    infoSection("Properties", [
+      { label: "Redshift", value: Number.isFinite(z) ? catalogNumber(z, 4) : "" },
+      { label: "Apparent mag", value: Number.isFinite(mag) ? catalogNumber(mag, 2) : "" },
+      { label: "Distance", value: Number.isFinite(source.distanceKpc) ? `${catalogNumber(source.distanceKpc, 2)} kpc` : "" },
+      { label: "Period", value: Number.isFinite(source.p0) ? `${catalogNumber(source.p0, 4)} s` : "" },
+      { label: "Pdot", value: Number.isFinite(source.p1) ? formatScientific(source.p1) : "" },
+      { label: "Age", value: formatAgeYears(pulsarAgeYears(source) ?? source.ageYears) },
+      { label: "Edot", value: Number.isFinite(source.edot) ? `${formatScientific(source.edot)} erg/s` : "" },
+      { label: "Edot/d2", value: Number.isFinite(source.edotOverD2) ? formatScientific(source.edotOverD2) : "" },
+      { label: "Spectral index", value: Number.isFinite(source.spectralIndex) ? catalogNumber(source.spectralIndex, 2) : "" },
+      { label: "Significance", value: Number.isFinite(source.significance) ? catalogNumber(source.significance, 2) : "" },
+      { label: "Variability", value: Number.isFinite(source.variability) ? catalogNumber(source.variability, 2) : "" },
+    ]),
+    infoSection("Flux / Activity", [
+      { label: "1 GHz flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz, 2)} Jy` : "" },
+      { label: "Fermi flux >1 GeV", value: Number.isFinite(source.flux1000) ? `${formatScientific(source.flux1000)} ph cm^-2 s^-1` : "" },
+      { label: "Fermi energy flux", value: Number.isFinite(source.energyFlux100) ? `${formatScientific(source.energyFlux100)} erg cm^-2 s^-1` : "" },
+      { label: "TeV flux", value: Number.isFinite(source.fluxTeV) ? `${formatScientific(source.fluxTeV)} cm^-2 s^-1` : "" },
+      { label: "TeV energy flux", value: Number.isFinite(source.energyFluxTeV) ? `${formatScientific(source.energyFluxTeV)} erg cm^-2 s^-1` : "" },
+    ]),
+    infoSection("IceCube Alert", [
+      { label: "MJD", value: Number.isFinite(source.mjd) ? catalogNumber(source.mjd, 3) : "" },
+      { label: "Energy", value: Number.isFinite(source.energyTeV) ? `${catalogNumber(source.energyTeV, 0)} TeV` : "" },
+      { label: "Signalness", value: Number.isFinite(source.signalness) ? catalogNumber(source.signalness, 2) : "" },
+      { label: "Nearest source", value: source.nearestSource && !source.nearestSource.startsWith("--") ? htmlEscape(source.nearestSource) : "" },
+      { label: "IceTop veto", value: source.crVeto ? "likely cosmic-ray shower background" : "" },
+    ]),
+    infoSection("Associations", [
+      { label: "Association", value: htmlEscape(source.association || "") },
+      { label: "TeV association", value: htmlEscape(tevAssoc) },
+      { label: "Other names", value: htmlEscape(source.otherNames || "") },
+      { label: "Note", value: htmlEscape(source.note || "") },
+      { label: "Source", value: htmlEscape(source.provenance || "") },
+    ]),
+  ];
+  return [summary, keyParams, skyllh, infoDetails("More catalog fields", more.join(""))].join("");
+}
+
+function sourceCompactSections(source, pix, shown) {
+  const details = sourceInfoSections(source, pix, shown);
+  const start = details.indexOf("<details");
+  const more = start >= 0 ? details.slice(start) : "";
+  const skyllh = infoSection("SkyLLH Match", [
+    { label: "Rank TS", value: catalogNumber(bestCatalogTS(source)) },
+    { label: "Nearest TS", value: `${pix.TS.toFixed(2)} (shown ${shown.toFixed(2)})` },
+    { label: "Pixel sep", value: `${pix.sep.toFixed(2)}deg` },
+  ]);
+  return [
+    skyllh,
+    infoSection("Source Parameters", typeParameterRows(source)),
+    more,
+  ].join("");
+}
+
+function normalizedName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function catalogNameCandidates(source) {
+  const names = [];
+  const add = (value) => {
+    const cleanValue = String(value || "").trim();
+    if (!cleanValue || cleanValue === "--" || cleanValue.startsWith("--")) return;
+    names.push(cleanValue);
+  };
+  add(source.name);
+  add(source.sourceName);
+  add(source.association);
+  add(source.assocTev);
+  add(source.tevcat);
+  String(source.otherNames || "")
+    .split(/[;,]/)
+    .forEach(add);
+  return [...new Set(names.map(normalizedName).filter((name) => name.length >= 3))];
+}
+
+function sameSourceByName(a, b) {
+  const aNames = new Set(catalogNameCandidates(a));
+  if (!aNames.size) return false;
+  return catalogNameCandidates(b).some((name) => aNames.has(name));
+}
+
+function counterpartCatalogSources(target) {
+  return CATALOG_OVERLAYS.sources
+    .map((source) => {
+      const distance = sep(target, source);
+      return { source, distance };
+    })
+    .filter((item) => sameSourceByName(target, item.source))
+    .sort((a, b) => {
+      const roleWeight = (source) => ({ parent: 0, association: 1, event: 2 }[source.catalogRole] ?? 3);
+      const rw = roleWeight(a.source) - roleWeight(b.source);
+      if (rw !== 0) return rw;
+      const ats = bestCatalogTS(a.source);
+      const bts = bestCatalogTS(b.source);
+      if (ats !== bts) return bts - ats;
+      return a.distance - b.distance;
+    });
+}
+
+function catalogContextScore(item) {
+  const source = item.source;
+  const ts = bestCatalogTS(source);
+  const roleBoost = ({ parent: 2.6, association: 1.0, event: 1.8 }[source.catalogRole] ?? 0);
+  const layerBoost = ({
+    agn: 1.2,
+    galaxy: 1.2,
+    microquasar: 1.4,
+    snr: 0.8,
+    tev: 1.1,
+    tev_snr: 1.1,
+    tev_pwn: 1.0,
+    neutrino_alert: 1.5,
+  }[source.layer] ?? 0);
+  const candidateBoost = source.match?.candidateName ? 2.0 : 0;
+  const visualBoost = clamp(source.visualWeight || 0, 0, 4) * 0.45;
+  const distanceBoost = clamp(2.0 - item.distance, 0, 2.0) * 0.9;
+  return ts * 0.18 + roleBoost + layerBoost + candidateBoost + visualBoost + distanceBoost;
+}
+
+function isMeaningfulNearby(item) {
+  const source = item.source;
+  const ts = bestCatalogTS(source);
+  if (item.distance <= 0.35) return true;
+  if (source.catalog === "core references") return true;
+  if (source.match?.candidateName) return true;
+  if (source.layer === "neutrino_alert" && (source.signalness || 0) >= 0.5) return true;
+  if (source.catalogRole === "parent" && source.layer !== "pulsar" && ts >= 1.5) return true;
+  if ((source.visualWeight || 0) >= 1.6 && ts >= 2.0) return true;
+  return ts >= 6.0;
+}
+
+function nearbyCatalogList(target, radiusDeg = 2.0, limit = 6) {
+  return CATALOG_OVERLAYS.sources
+    .map((source) => ({ source, distance: sep(target, source) }))
+    .filter((item) => item.distance <= radiusDeg)
+    .filter(isMeaningfulNearby)
+    .sort((a, b) => {
+      const score = catalogContextScore(b) - catalogContextScore(a);
+      if (Math.abs(score) > 1e-6) return score;
+      return a.distance - b.distance;
+    })
+    .slice(0, limit);
+}
+
+function compactSourceList(title, items) {
+  if (!items.length) return "";
+  const rows = items.map(({ source, distance }) => `
+    <button class="nearby-row" type="button" data-source-id="${htmlEscape(source.id)}">
+      <span class="nearby-name">${htmlEscape(catalogDisplayName(source))}</span>
+      <b>${catalogNumber(distance, 2)}deg · TS ${catalogNumber(bestCatalogTS(source), 1)}</b>
+      <em>${htmlEscape(source.catalog || "")}${source.class ? ` · ${htmlEscape(source.class)}` : ""}</em>
+    </button>`).join("");
+  return `<section class="info-card nearby-card"><h3>${htmlEscape(title)}</h3>${rows}</section>`;
+}
+
+function compactMatchedCatalog(source, distance) {
+  if (!source) return "";
+  return `<section class="info-card nearby-card matched-card">
+    <h3>Catalog Match</h3>
+    <button class="nearby-row matched-row" type="button" data-source-id="${htmlEscape(source.id)}">
+      <span class="nearby-name">${htmlEscape(catalogDisplayName(source))}</span>
+      <b>${catalogNumber(distance, 3)}deg · TS ${catalogNumber(bestCatalogTS(source), 1)}</b>
+      <em>${htmlEscape(source.catalog || "")}${source.class ? ` · ${htmlEscape(source.class)}` : ""}</em>
+    </button>
+  </section>`;
+}
+
+function compactCounterpartList(items, currentId = "") {
+  const filtered = items.filter((item) => item.source.id !== currentId);
+  if (!filtered.length) return "";
+  const rows = filtered.map(({ source, distance }) => `
+    <button class="nearby-row counterpart-row" type="button" data-source-id="${htmlEscape(source.id)}">
+      <span class="nearby-name">${htmlEscape(catalogDisplayName(source))}</span>
+      <b>${catalogNumber(distance, 3)}deg · TS ${catalogNumber(bestCatalogTS(source), 1)}</b>
+      <em>${htmlEscape(source.catalog || "")}${source.class ? ` · ${htmlEscape(source.class)}` : ""}</em>
+    </button>`).join("");
+  return `<section class="info-card nearby-card counterpart-card"><h3>Catalog Counterparts</h3>${rows}</section>`;
+}
+
+function bindNearbyRows() {
+  drawerContent.querySelectorAll(".nearby-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const source = CATALOG_OVERLAYS.sources.find((item) => item.id === row.dataset.sourceId);
+      if (source) openCatalogDrawer(source);
+    });
+  });
+}
+
+function markerResultSection(m, pix, dense, best, denseRows, sparsePartial, preferredTS, preferredNs, preferredGamma) {
+  const denseBest = best
+    ? `TS ${best.TS.toFixed(2)}, RA ${best.ra_deg.toFixed(3)}deg, Dec ${best.dec_deg.toFixed(3)}deg`
+    : "";
+  const denseProgress = dense?.partial
+    ? `${denseRows} / 113${sparsePartial ? ", sparse" : ""}`
+    : "";
+  const summary = infoSection("SkyLLH Result", [
+    { label: "Best shown TS", value: `${preferredTS.toFixed(2)}, ns ${preferredNs.toFixed(2)}, gamma ${preferredGamma.toFixed(2)}` },
+    { label: "Source position", value: `RA ${m.ra.toFixed(4)}deg, Dec ${m.dec.toFixed(4)}deg` },
+    { label: "Nearest pixel", value: `TS ${pix.TS.toFixed(2)}, sep ${pix.sep.toFixed(2)}deg` },
+    { label: "Dense best", value: denseBest },
+  ]);
+  const more = infoSection("More SkyLLH", [
+    { label: "Pixel ns / gamma", value: `${pix.ns.toFixed(2)} / ${pix.gamma.toFixed(2)}` },
+    { label: "Exact source TS", value: Number.isFinite(m.exactTS) ? m.exactTS.toFixed(2) : "" },
+    { label: "Shape", value: m.extension ? htmlEscape(`${extensionLabel(m.extension)}${m.extension.note ? ` (${m.extension.note})` : ""}`) : "" },
+    { label: "Dense rows", value: denseProgress },
+  ]);
+  return `${summary}${infoDetails("More SkyLLH fields", more)}`;
+}
+
 function openDrawer(m) {
   selected = m;
   selectedCatalog = null;
@@ -1469,6 +1870,18 @@ function openDrawer(m) {
   const preferredTS = best?.TS ?? m.exactTS ?? m.TS ?? m.baseTS ?? pix.TS;
   const preferredNs = best?.ns ?? pix.ns;
   const preferredGamma = best?.gamma ?? pix.gamma;
+  const counterparts = counterpartCatalogSources(m);
+  const primaryItem = counterparts.find((item) => item.source.catalog !== "core references") || counterparts[0] || null;
+  const primaryCatalog = primaryItem?.source || null;
+  const counterpartIds = new Set(counterparts.map((item) => item.source.id));
+  const nearby = nearbyCatalogList(m, 2.0, 6)
+    .filter((item) => !counterpartIds.has(item.source.id));
+  const catalogContext = primaryCatalog
+    ? compactMatchedCatalog(primaryCatalog, primaryItem.distance)
+    : "";
+  const counterpartContext = infoDetails("Catalog Counterparts", compactCounterpartList(counterparts, primaryCatalog?.id || ""));
+  const nearbyContext = infoDetails("Nearby References", compactSourceList("Nearby References", nearby));
+  const resultContext = markerResultSection(m, pix, dense, best, denseRows, sparsePartial, preferredTS, preferredNs, preferredGamma);
 
   drawerContent.innerHTML = `
     <h2>${m.name}</h2>
@@ -1477,18 +1890,12 @@ function openDrawer(m) {
       ${m.sourceClass ? `<span class="tag">${m.sourceClass}</span>` : ""}
       <span class="tag">${denseTag}</span>
     </div>
-    <div class="kv">
-      Best shown TS: <b>${preferredTS.toFixed(2)}</b>, ns ${preferredNs.toFixed(2)}, gamma ${preferredGamma.toFixed(2)}<br>
-      Source RA ${m.ra.toFixed(4)}deg, Dec ${m.dec.toFixed(4)}deg<br>
-      Nearest nside64: TS <b>${pix.TS.toFixed(2)}</b>, ns ${pix.ns.toFixed(2)}, gamma ${pix.gamma.toFixed(2)}, sep ${pix.sep.toFixed(2)}deg
-      ${m.exactTS ? `<br>Exact source TS: <b>${m.exactTS.toFixed(2)}</b>` : ""}
-      ${m.extension ? `<br>Shape: ${extensionLabel(m.extension)}${m.extension.note ? ` (${m.extension.note})` : ""}` : ""}
-      ${best ? `<br>Dense best: TS <b>${best.TS.toFixed(2)}</b>, RA ${best.ra_deg.toFixed(3)}deg, Dec ${best.dec_deg.toFixed(3)}deg` : ""}
-      ${dense?.partial ? `<br>Partial dense rows: <b>${denseRows}</b> / 113${sparsePartial ? " (map uses nside64 cutout until enough rows)" : ""}` : ""}
-    </div>
-    <div class="note">
-      Hover the local map for coordinates. The local cbar is display-only and does not change TS.
-    </div>`;
+    <div class="source-info">${resultContext}</div>
+    <div class="source-info">${catalogContext}</div>
+    ${counterpartContext}
+    ${nearbyContext}
+    <div class="note"></div>`;
+  bindNearbyRows();
   renderLocalCanvas(m);
 }
 
@@ -1504,27 +1911,12 @@ function openCatalogDrawer(source) {
   const pix = nearestPixel(source.ra, source.dec);
   const shown = displayTSForPixel(pix.index, pix);
   const name = htmlEscape(source.name || source.sourceName || source.id);
-  const sourceName = source.sourceName && source.sourceName !== source.name ? `<br>Catalog name: ${htmlEscape(source.sourceName)}` : "";
-  const tev = source.assocTev || source.tevcat ? `<br>TeV association: ${htmlEscape(source.assocTev || source.tevcat)}` : "";
-  const extension = source.extended || source.sizeDeg || source.extensionDeg ? `<br>Extension/size: ${htmlEscape(source.extended || `${(source.sizeDeg || source.extensionDeg).toFixed(3)} deg`)}` : "";
-  const note = source.note ? `<br>Note: ${htmlEscape(source.note)}` : "";
-  const match = source.match || {};
-  const candidate = match.candidateName
-    ? `<br>Matched SkyLLH candidate: <b>${htmlEscape(match.candidateName)}</b>, sep ${catalogNumber(match.candidateSepDeg, 3)}deg, TS ${catalogNumber(match.candidateTs)}${match.candidateDense ? " (dense available)" : ""}`
-    : "<br>No SkyLLH candidate within 2 deg";
-  const metrics = [
-    source.radioFluxJy1GHz ? `1 GHz flux ${catalogNumber(source.radioFluxJy1GHz)} Jy` : "",
-    source.edot ? `Edot ${source.edot.toExponential(2)} erg/s` : "",
-    source.edotOverD2 ? `Edot/d2 ${source.edotOverD2.toExponential(2)}` : "",
-    source.fluxTeV ? `TeV flux ${source.fluxTeV.toExponential(2)}` : "",
-    source.energyFlux100 ? `Fermi energy flux ${source.energyFlux100.toExponential(2)}` : "",
-    source.energyTeV ? `Alert energy ${catalogNumber(source.energyTeV, 0)} TeV` : "",
-    source.signalness != null ? `Signalness ${catalogNumber(source.signalness, 2)}` : "",
-    source.mjd ? `MJD ${catalogNumber(source.mjd, 3)}` : "",
-    source.nearestSource && !source.nearestSource.startsWith("--") ? `IceCat nearest source ${htmlEscape(source.nearestSource)}` : "",
-    source.significance ? `catalog significance ${catalogNumber(source.significance)}` : "",
-    source.variability ? `variability ${catalogNumber(source.variability)}` : "",
-  ].filter(Boolean).join("<br>");
+  const counterparts = counterpartCatalogSources(source);
+  const counterpartIds = new Set(counterparts.map((item) => item.source.id));
+  const nearby = nearbyCatalogList(source, 2.0, 6)
+    .filter((item) => !counterpartIds.has(item.source.id) && item.source.id !== source.id);
+  const counterpartContext = infoDetails("Catalog Counterparts", compactCounterpartList(counterparts, source.id));
+  const nearbyContext = infoDetails("Nearby References", compactSourceList("Nearby References", nearby));
   const marker = {
     id: `catalog_${source.id}`,
     name: source.name || source.sourceName || source.id,
@@ -1541,20 +1933,10 @@ function openCatalogDrawer(source) {
       <span class="tag">${htmlEscape(source.layer || "source")}</span>
       ${source.class ? `<span class="tag">${htmlEscape(source.class)}</span>` : ""}
     </div>
-    <div class="kv">
-      RA ${source.ra.toFixed(4)}deg, Dec ${source.dec.toFixed(4)}deg${sourceName}<br>
-      ${source.raErrPlusDeg ? `90% bounds: RA +${catalogNumber(source.raErrPlusDeg, 2)}/-${catalogNumber(source.raErrMinusDeg, 2)}deg, Dec +${catalogNumber(source.decErrPlusDeg, 2)}/-${catalogNumber(source.decErrMinusDeg, 2)}deg<br>` : ""}
-      Matched TS rank value <b>${catalogNumber(bestCatalogTS(source))}</b><br>
-      Nearest nside64 TS <b>${pix.TS.toFixed(2)}</b>, shown ${shown.toFixed(2)}, sep ${pix.sep.toFixed(2)}deg
-      ${candidate}
-      ${metrics ? `<br>${metrics}` : ""}
-      ${tev}${extension}${note}
-      ${source.crVeto ? "<br>IceTop veto flag: likely cosmic-ray shower background" : ""}
-      ${source.provenance ? `<br>Source: ${htmlEscape(source.provenance)}` : ""}
-    </div>
-    <div class="note">
-      Catalog overlays are positional references. The local map below is cut from the current SkyLLH TS map at this position.
-    </div>`;
+    <div class="source-info">${sourceCompactSections(source, pix, shown)}</div>
+    ${counterpartContext}
+    ${nearbyContext}
+    <div class="note"></div>`;
   renderLocalCanvas(marker);
 }
 
@@ -1571,7 +1953,7 @@ function populateBright() {
         if (ats !== bts) return bts - ats;
         return (b.visualWeight || 0) - (a.visualWeight || 0);
       });
-    if (note) note.textContent = `${catalogPreset.options[catalogPreset.selectedIndex].text}: ranked by matched SkyLLH TS`;
+    if (note) note.textContent = catalogPreset.options[catalogPreset.selectedIndex].text;
     if (!sources.length) {
       box.innerHTML = `<div class="empty-list">No catalog sources in this view</div>`;
       return;
@@ -1587,7 +1969,7 @@ function populateBright() {
     }
     return;
   }
-  if (note) note.textContent = `${filter.options[filter.selectedIndex].text}: ranked by displayed TS`;
+  if (note) note.textContent = filter.options[filter.selectedIndex].text;
   const ranked = filteredMarkers()
     .sort((a, b) => bestDisplayTS(b) - bestDisplayTS(a));
   if (!ranked.length) {
@@ -1683,7 +2065,7 @@ canvas.addEventListener("pointerup", (e) => {
 
 canvas.addEventListener("mousemove", updateSkyReadout);
 canvas.addEventListener("mouseleave", () => {
-  if (skyReadout) skyReadout.textContent = "Move over the sky for RA/Dec and nearest TS";
+  if (skyReadout) skyReadout.textContent = "";
 });
 
 canvas.addEventListener("wheel", (e) => {
