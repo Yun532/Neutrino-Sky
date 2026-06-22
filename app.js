@@ -19,6 +19,7 @@ const MILKY_WAY_POLYGONS = window.MILKY_WAY_POLYGONS || null;
 const REFERENCE_SOURCES = window.REFERENCE_SOURCES || [];
 const PARTIAL_DENSE = window.PARTIAL_DENSE || null;
 const CATALOG_OVERLAYS = window.CATALOG_OVERLAYS || { metadata: { counts: {} }, sources: [] };
+const MOLECULAR_CLOUD_SHAPES = window.MOLECULAR_CLOUD_SHAPES || { clouds: {} };
 
 filter.value = "known";
 if (catalogPreset) catalogPreset.value = "off";
@@ -167,23 +168,136 @@ function bestCatalogNameTarget(targetName) {
   return matches[0] || null;
 }
 
+function lbPolygon(points) {
+  return points.map(([l, b]) => galToEq(l, b));
+}
+
+function molecularCloudMarker(key) {
+  const cloud = MOLECULAR_CLOUD_SHAPES.clouds?.[key];
+  if (cloud) {
+    const outlines = (cloud.outlines || []).filter((outline) => outline?.length >= 3);
+    const outline = cloud.outline?.length >= 3 ? cloud.outline : outlines[0] || [];
+    return {
+      id: `cloud_${key}`,
+      name: cloud.name,
+      kind: cloud.kind || "molecular cloud",
+      sourceClass: cloud.sourceClass || "giant molecular cloud",
+      distance: cloud.distance,
+      ra: cloud.ra,
+      dec: cloud.dec,
+      extension: {
+        type: "polygon",
+        outline,
+        outlines,
+        ridges: cloud.ridges || [],
+        note: cloud.note,
+        source: cloud.source,
+        thresholdNH: cloud.thresholdNH,
+        ridgeNH: cloud.ridgeNH,
+        displayMode: cloud.displayMode,
+      },
+    };
+  }
+  const centers = {
+    hercules: {
+      name: "Hercules Molecular Cloud",
+      center: { l: 45.5, b: 8.2 },
+    },
+    monoceros: {
+      name: "Monoceros Molecular Cloud",
+      center: { l: 214.5, b: -12.5 },
+    },
+    orion: {
+      name: "Orion Molecular Cloud",
+      center: { l: 210.0, b: -18.5 },
+    },
+    perseus: {
+      name: "Perseus Molecular Cloud",
+      center: { l: 160.5, b: -19.0 },
+    },
+    taurus: {
+      name: "Taurus Molecular Cloud",
+      center: { l: 170.5, b: -15.5 },
+    },
+  };
+  const t = centers[key] || centers.taurus;
+  const center = galToEq(t.center.l, t.center.b);
+  return {
+    id: `cloud_${key}`,
+    name: t.name,
+    kind: "molecular cloud",
+    sourceClass: "giant molecular cloud",
+    ra: center.ra,
+    dec: center.dec,
+  };
+}
+
+function molecularCloudCatalogSources() {
+  return Object.entries(MOLECULAR_CLOUD_SHAPES.clouds || {}).map(([key, cloud]) => {
+    const outlines = (cloud.outlines || []).filter((outline) => outline?.length >= 3);
+    const outline = cloud.outline?.length >= 3 ? cloud.outline : outlines[0] || [];
+    return {
+      id: `gmc_${key}`,
+      name: cloud.name,
+      sourceName: cloud.name,
+      catalog: "Molecular clouds",
+      catalogRole: "parent",
+      layer: "molecular_cloud",
+      class: "giant molecular cloud",
+      sourceClass: "giant molecular cloud",
+      ra: cloud.ra,
+      dec: cloud.dec,
+      glon: cloud.galactic?.l,
+      glat: cloud.galactic?.b,
+      distancePcText: cloud.distance,
+      visualWeight: 2.2,
+      note: cloud.source || "",
+      extension: {
+        type: "polygon",
+        outline,
+        outlines,
+        ridges: cloud.ridges || [],
+        note: cloud.note,
+        source: cloud.source,
+        thresholdNH: cloud.thresholdNH,
+        ridgeNH: cloud.ridgeNH,
+        displayMode: cloud.displayMode,
+      },
+    };
+  });
+}
+
+if (MOLECULAR_CLOUD_SHAPES.clouds) {
+  const catalogIds = new Set(CATALOG_OVERLAYS.sources.map((s) => s.id));
+  for (const source of molecularCloudCatalogSources()) {
+    if (!catalogIds.has(source.id)) {
+      CATALOG_OVERLAYS.sources.push(source);
+      catalogIds.add(source.id);
+    }
+  }
+}
+
 function sourceSearchAliasTarget(query) {
   const q = normalizedName(query);
   const aliases = {
-    monoceros: { target: "Monoceros Nebula" },
-    perseus: { target: "NGC 1275" },
+    hercules: { cloud: "hercules" },
+    monoceros: { cloud: "monoceros" },
+    orion: { cloud: "orion" },
+    m42: { cloud: "orion" },
+    perseus: { cloud: "perseus" },
+    taurus: { cloud: "taurus" },
     perseusa: { target: "NGC 1275" },
     "3c84": { target: "NGC 1275" },
-    taurus: { target: "Crab Nebula" },
     taurusa: { target: "Crab Nebula" },
     crab: { target: "Crab Nebula" },
-    orion: { fallback: { id: "alias_orion_m42", name: "Orion Nebula (M42)", kind: "search", ra: 83.8221, dec: -5.3911 } },
-    m42: { fallback: { id: "alias_orion_m42", name: "Orion Nebula (M42)", kind: "search", ra: 83.8221, dec: -5.3911 } },
-    hercules: { fallback: { id: "alias_hercules_a", name: "Hercules A", kind: "search", ra: 252.784, dec: 4.993 } },
     herculesa: { fallback: { id: "alias_hercules_a", name: "Hercules A", kind: "search", ra: 252.784, dec: 4.993 } },
   };
   const alias = aliases[q];
   if (!alias) return null;
+  if (alias.cloud) {
+    const cloud = molecularCloudMarker(alias.cloud);
+    return { type: "marker", item: cloud, label: cloud.name };
+  }
   const target = alias.target ? bestCatalogNameTarget(alias.target) : null;
   if (target) return { type: "catalog", item: target, label: catalogDisplayName(target) };
   if (alias.fallback) return { type: "marker", item: alias.fallback, label: alias.fallback.name };
@@ -505,6 +619,7 @@ function catalogPresetLayers() {
   if (preset === "galaxy") return { layer: new Set(["galaxy"]) };
   if (preset === "agn") return { layer: new Set(["agn"]) };
   if (preset === "alerts") return { layer: new Set(["neutrino_alert"]) };
+  if (preset === "clouds") return { layer: new Set(["molecular_cloud"]) };
   if (preset === "fermi") return { layer: new Set(["fermi"]) };
   if (preset === "parent") return { role: new Set(["parent"]) };
   return new Set();
@@ -529,6 +644,14 @@ function neutrinoAlerts() {
 }
 
 function catalogStyle(s) {
+  if (s.layer === "molecular_cloud") {
+    return {
+      fill: "rgba(236,241,242,0.18)",
+      stroke: "rgba(46,61,75,0.58)",
+      r: 3.6,
+      shape: "ring",
+    };
+  }
   if (s.layer === "neutrino_alert") {
     const signalness = clamp(s.signalness ?? 0, 0, 1);
     const energy = Math.log10(Math.max(s.energyTeV || 1, 1));
@@ -778,15 +901,61 @@ function diamond(x, y, r) {
 
 function extensionLabel(ext) {
   if (!ext) return "";
+  if (ext.type === "polygon") {
+    return `Planck TAU353 molecular cloud contour`;
+  }
   if (ext.type === "ellipse") {
     return `extended ellipse ${ext.radiusRaCosDecDeg.toFixed(1)} x ${ext.radiusDecDeg.toFixed(1)} deg`;
   }
   return `extended radius ${ext.radiusDeg.toFixed(2)} deg`;
 }
 
+function extensionOutlines(ext) {
+  if (!ext || ext.type !== "polygon") return [];
+  const outlines = (ext.outlines || []).filter((outline) => outline?.length >= 3);
+  if (outlines.length) return outlines;
+  return ext.outline?.length >= 3 ? [ext.outline] : [];
+}
+
+function drawSkyPolygon(points, fillStyle, strokeStyle, lineWidth, dash = []) {
+  if (!points?.length) return;
+  ctx.save();
+  ctx.beginPath();
+  for (const [i, p] of points.entries()) {
+    const q = skyToXYContinuous(p.ra, p.dec, points[0].ra);
+    if (i === 0) ctx.moveTo(q.x, q.y);
+    else ctx.lineTo(q.x, q.y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = fillStyle;
+  ctx.strokeStyle = strokeStyle;
+  ctx.lineWidth = lineWidth;
+  ctx.setLineDash(dash);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawSourceExtension(m, isSelected = false) {
   const ext = m.extension;
   if (!ext) return;
+  if (ext.type === "polygon") {
+    const fill = isSelected ? "rgba(91, 116, 136, 0.13)" : "rgba(89, 101, 114, 0.045)";
+    const stroke = isSelected ? "rgba(46, 61, 75, 0.68)" : "rgba(89, 101, 114, 0.32)";
+    for (const outline of extensionOutlines(ext)) {
+      drawSkyPolygon(outline, fill, stroke, (isSelected ? 1.7 : 1.0) * devicePixelRatio, []);
+    }
+    ctx.save();
+    ctx.lineCap = "round";
+    const ridgeDash = [3 * devicePixelRatio, 4 * devicePixelRatio];
+    const ridgeWidth = isSelected ? 1.4 : 0.8;
+    const ridgeStroke = isSelected ? "rgba(46, 61, 75, 0.58)" : "rgba(89, 101, 114, 0.24)";
+    for (const ridge of ext.ridges || []) {
+      drawSkyPolyline(ridge, ridgeStroke, ridgeWidth * devicePixelRatio, ridgeDash);
+    }
+    ctx.restore();
+    return;
+  }
   const cosDec = Math.max(0.08, Math.cos(deg2rad(m.dec)));
   const a = ext.type === "ellipse" ? ext.radiusRaCosDecDeg : ext.radiusDeg;
   const b = ext.type === "ellipse" ? ext.radiusDecDeg : ext.radiusDeg;
@@ -930,9 +1099,22 @@ function drawCatalogSource(s) {
   ctx.restore();
 }
 
+function drawCatalogExtension(s, isSelected = false) {
+  if (!s.extension) return;
+  drawSourceExtension({
+    id: s.id,
+    name: s.name || s.sourceName || s.id,
+    ra: s.ra,
+    dec: s.dec,
+    extension: s.extension,
+  }, isSelected);
+}
+
 function drawCatalogOverlays() {
   const sources = filteredCatalogSources();
   const drawn = new Set();
+  for (const s of sources) drawCatalogExtension(s, selectedCatalog?.id === s.id);
+  if (selectedCatalog && !sources.some((s) => s.id === selectedCatalog.id)) drawCatalogExtension(selectedCatalog, true);
   for (const s of sources) drawCatalogSource(s);
   for (const s of sources) drawn.add(s.id);
   if (selectedCatalog && !drawn.has(selectedCatalog.id)) drawCatalogSource(selectedCatalog);
@@ -1024,6 +1206,7 @@ function draw() {
     drawAlertOverlays();
     drawCatalogOverlays();
     for (const m of markerDrawOrder(filteredMarkers())) drawMarker(m);
+    if (selected && !DATA.markers.some((m) => m.id === selected.id)) drawMarker(selected);
   });
   drawFrame();
 }
@@ -1098,6 +1281,61 @@ function localPoints(m, radius) {
         gamma: p.gamma,
       })),
   };
+}
+
+function localExtensionPoints(m, points = null) {
+  if (!m.extension || m.extension.type !== "polygon") return [];
+  const cosDec = Math.max(0.05, Math.cos(deg2rad(m.dec)));
+  return (points || m.extension.outline || []).map((p) => ({
+    x: wrapSigned(p.ra - m.ra) * cosDec,
+    y: p.dec - m.dec,
+  }));
+}
+
+function extensionLocalExtent(m) {
+  const parts = [
+    ...extensionOutlines(m.extension).map((outline) => localExtensionPoints(m, outline)),
+    ...(m.extension?.ridges || []).map((ridge) => localExtensionPoints(m, ridge)),
+  ];
+  const values = parts.flat();
+  if (!values.length) return 0;
+  return Math.max(...values.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y))));
+}
+
+function drawLocalSourceExtension(g, m, toXY) {
+  if (!m.extension || m.extension.type !== "polygon") return;
+  const outlines = extensionOutlines(m.extension).map((outline) => localExtensionPoints(m, outline)).filter((outline) => outline.length >= 3);
+  const ridges = (m.extension.ridges || []).map((ridge) => localExtensionPoints(m, ridge)).filter((ridge) => ridge.length >= 2);
+  if (!outlines.length && !ridges.length) return;
+  g.save();
+  for (const outline of outlines) {
+    g.beginPath();
+    for (const [i, p] of outline.entries()) {
+      const q = toXY(p.x, p.y);
+      if (i === 0) g.moveTo(q.x, q.y);
+      else g.lineTo(q.x, q.y);
+    }
+    g.closePath();
+    g.fillStyle = "rgba(91, 116, 136, 0.12)";
+    g.strokeStyle = "rgba(46, 61, 75, 0.70)";
+    g.lineWidth = 2.0;
+    g.fill();
+    g.stroke();
+  }
+  g.lineCap = "round";
+  g.setLineDash([4, 5]);
+  g.strokeStyle = "rgba(46, 61, 75, 0.55)";
+  g.lineWidth = 1.4;
+  for (const localRidge of ridges) {
+    g.beginPath();
+    for (const [i, p] of localRidge.entries()) {
+      const q = toXY(p.x, p.y);
+      if (i === 0) g.moveTo(q.x, q.y);
+      else g.lineTo(q.x, q.y);
+    }
+    g.stroke();
+  }
+  g.restore();
 }
 
 function drawLocalStar(g, x, y, outer = 12, inner = 5.5) {
@@ -1394,10 +1632,12 @@ function renderLocalCanvas(m) {
   g.fillStyle = "#f7f8f4";
   g.fillRect(0, 0, c.width, c.height);
 
-  const pack = localPoints(m, 10);
+  const extensionExtent = extensionLocalExtent(m);
+  const requestedRadius = Math.max(10, extensionExtent * 1.18);
+  const pack = localPoints(m, requestedRadius);
   const pts = pack.points;
   const ext = pts.length ? Math.max(...pts.map((p) => Math.max(Math.abs(p.x || 0), Math.abs(p.y || 0)))) : 10;
-  const radius = pack.dense ? Math.max(1, ext * 1.08) : 10;
+  const radius = pack.dense ? Math.max(1, ext * 1.08) : requestedRadius;
   const rawMaxTS = Math.max(1, ...pts.map((p) => p.TS));
   const margin = 54;
   const plot = c.width - margin * 2;
@@ -1495,6 +1735,8 @@ function renderLocalCanvas(m) {
 
   g.strokeStyle = "rgba(48,61,72,0.32)";
   g.strokeRect(margin, margin, plot, plot);
+
+  drawLocalSourceExtension(g, m, toXY);
 
   const localAlerts = drawLocalAlertOverlay(g, m, {
     xMin: -radius,
@@ -1714,6 +1956,15 @@ function typeParameterRows(source) {
       { label: "IR luminosity", value: Number.isFinite(source.irLuminosity) ? `${formatScientific(source.irLuminosity)} Lsun` : "" },
       { label: "Radio flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz, 2)} Jy` : "" },
       { label: "Gamma energy flux", value: Number.isFinite(source.energyFlux100) ? `${formatScientific(source.energyFlux100)} erg cm^-2 s^-1` : "" },
+    ];
+  }
+  if (source.layer === "molecular_cloud") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
+      { label: "Distance", value: htmlEscape(source.distancePcText || "") },
+      { label: "Contour", value: "Planck TAU353 template + high-density contour" },
+      { label: "NH threshold", value: Number.isFinite(source.extension?.thresholdNH) ? `${catalogNumber(source.extension.thresholdNH / 1e21, 2)}e21 cm^-2` : "" },
+      { label: "Dense contour", value: Number.isFinite(source.extension?.ridgeNH) ? `${catalogNumber(source.extension.ridgeNH / 1e21, 2)}e21 cm^-2` : "" },
     ];
   }
   return [
@@ -2051,6 +2302,7 @@ function openCatalogDrawer(source) {
     kind: "catalog",
     ra: source.ra,
     dec: source.dec,
+    extension: source.extension,
   };
 
   drawerContent.innerHTML = `
@@ -2090,7 +2342,9 @@ function populateBright() {
       const row = document.createElement("div");
       row.className = "bright-row";
       const match = s.match || {};
-      const assoc = match.candidateName ? `${match.candidateName}, ${catalogNumber(match.candidateSepDeg, 2)}deg` : `nearest pixel ${catalogNumber(match.nearestSepDeg, 2)}deg`;
+      const assoc = s.layer === "molecular_cloud"
+        ? "Planck TAU353 contour"
+        : (match.candidateName ? `${match.candidateName}, ${catalogNumber(match.candidateSepDeg, 2)}deg` : `nearest pixel ${catalogNumber(match.nearestSepDeg, 2)}deg`);
       row.innerHTML = `<div>#${i + 1}</div><div>${htmlEscape(s.name || s.sourceName || s.id)}<div class="meta">${htmlEscape(s.catalog)} / ${htmlEscape(s.layer)} · ${assoc}</div></div><div>TS ${bestCatalogTS(s).toFixed(1)}</div>`;
       row.onclick = () => openCatalogDrawer(s);
       box.appendChild(row);
