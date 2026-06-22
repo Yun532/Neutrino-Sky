@@ -6,6 +6,7 @@ const drawerContent = document.getElementById("drawerContent");
 const filter = document.getElementById("markerFilter");
 const catalogPreset = document.getElementById("catalogPreset");
 const coordForm = document.getElementById("coordForm");
+const sourceSearch = document.getElementById("sourceSearch");
 const coordRa = document.getElementById("coordRa");
 const coordDec = document.getElementById("coordDec");
 const subTitle = document.querySelector(".sub");
@@ -101,6 +102,112 @@ function parseCoordInput() {
 
 function markCoordInputInvalid(invalid) {
   coordForm?.classList.toggle("invalid", invalid);
+}
+
+function foldedText(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function sourceSearchFields(source) {
+  return [
+    source.name,
+    source.sourceName,
+    source.association,
+    source.otherNames,
+    source.tevcat,
+    source.assocTev,
+    source.catalog,
+    source.class,
+    source.sourceClass,
+    source.id,
+  ].filter(Boolean).map(String);
+}
+
+function fieldMatchScore(query, field) {
+  const q = foldedText(query);
+  const f = foldedText(field);
+  if (!q || !f) return 0;
+  const nq = normalizedName(q);
+  const nf = normalizedName(f);
+  const tokens = f.split(/[^a-z0-9]+/).filter(Boolean);
+  if (f === q || nf === nq) return 100;
+  if (tokens.some((token) => token === q)) return 94;
+  if (f.startsWith(`${q} `) || f.startsWith(q)) return 88;
+  if (tokens.some((token) => token.startsWith(q))) return 78;
+  const boundary = new RegExp(`(^|[^a-z0-9])${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`);
+  if (q.length >= 3 && boundary.test(f)) return 74;
+  if (nq.length >= 3 && nf.startsWith(nq)) return 62;
+  if (/\d/.test(nq) && nq.length >= 4 && nf.includes(nq)) return 52;
+  return 0;
+}
+
+function sourceSearchScore(query, source, type) {
+  let score = 0;
+  for (const field of sourceSearchFields(source)) {
+    score = Math.max(score, fieldMatchScore(query, field));
+  }
+  if (!score) return 0;
+  const roleBoost = type === "marker" ? 8 : ({ parent: 5, association: 2, event: 1 }[source.catalogRole] ?? 0);
+  const tsBoost = type === "marker" ? bestDisplayTS(source) * 0.08 : bestCatalogTS(source) * 0.08;
+  return score + roleBoost + tsBoost + clamp(source.visualWeight || 0, 0, 4) * 0.6;
+}
+
+function bestCatalogNameTarget(targetName) {
+  const target = normalizedName(targetName);
+  const matches = CATALOG_OVERLAYS.sources
+    .filter((source) => sourceSearchFields(source).some((field) => normalizedName(field) === target))
+    .sort((a, b) => {
+      const roleWeight = (source) => ({ parent: 3, association: 2, event: 1 }[source.catalogRole] ?? 0);
+      const roleDiff = roleWeight(b) - roleWeight(a);
+      if (roleDiff) return roleDiff;
+      const tsDiff = bestCatalogTS(b) - bestCatalogTS(a);
+      if (tsDiff) return tsDiff;
+      return (b.visualWeight || 0) - (a.visualWeight || 0);
+    });
+  return matches[0] || null;
+}
+
+function sourceSearchAliasTarget(query) {
+  const q = normalizedName(query);
+  const aliases = {
+    monoceros: { target: "Monoceros Nebula" },
+    perseus: { target: "NGC 1275" },
+    perseusa: { target: "NGC 1275" },
+    "3c84": { target: "NGC 1275" },
+    taurus: { target: "Crab Nebula" },
+    taurusa: { target: "Crab Nebula" },
+    crab: { target: "Crab Nebula" },
+    orion: { fallback: { id: "alias_orion_m42", name: "Orion Nebula (M42)", kind: "search", ra: 83.8221, dec: -5.3911 } },
+    m42: { fallback: { id: "alias_orion_m42", name: "Orion Nebula (M42)", kind: "search", ra: 83.8221, dec: -5.3911 } },
+    hercules: { fallback: { id: "alias_hercules_a", name: "Hercules A", kind: "search", ra: 252.784, dec: 4.993 } },
+    herculesa: { fallback: { id: "alias_hercules_a", name: "Hercules A", kind: "search", ra: 252.784, dec: 4.993 } },
+  };
+  const alias = aliases[q];
+  if (!alias) return null;
+  const target = alias.target ? bestCatalogNameTarget(alias.target) : null;
+  if (target) return { type: "catalog", item: target, label: catalogDisplayName(target) };
+  if (alias.fallback) return { type: "marker", item: alias.fallback, label: alias.fallback.name };
+  return null;
+}
+
+function findSourceByName(query) {
+  const alias = sourceSearchAliasTarget(query);
+  if (alias) return alias;
+  const markerMatches = DATA.markers.map((item) => ({
+    type: "marker",
+    item,
+    label: item.name || item.id,
+    score: sourceSearchScore(query, item, "marker"),
+  }));
+  const catalogMatches = CATALOG_OVERLAYS.sources.map((item) => ({
+    type: "catalog",
+    item,
+    label: catalogDisplayName(item),
+    score: sourceSearchScore(query, item, "catalog"),
+  }));
+  return [...markerMatches, ...catalogMatches]
+    .filter((match) => match.score > 0)
+    .sort((a, b) => b.score - a.score)[0] || null;
 }
 
 function sep(a, b) {
@@ -825,8 +932,10 @@ function drawCatalogSource(s) {
 
 function drawCatalogOverlays() {
   const sources = filteredCatalogSources();
-  if (!sources.length) return;
+  const drawn = new Set();
   for (const s of sources) drawCatalogSource(s);
+  for (const s of sources) drawn.add(s.id);
+  if (selectedCatalog && !drawn.has(selectedCatalog.id)) drawCatalogSource(selectedCatalog);
 }
 
 function drawAlertOverlays() {
@@ -2148,6 +2257,21 @@ document.getElementById("toggleLabels").onclick = () => {
 if (coordForm) {
   coordForm.addEventListener("submit", (e) => {
     e.preventDefault();
+    const sourceQuery = (sourceSearch?.value || "").trim();
+    if (sourceQuery) {
+      const match = findSourceByName(sourceQuery);
+      if (!match) {
+        markCoordInputInvalid(true);
+        return;
+      }
+      markCoordInputInvalid(false);
+      if (sourceSearch) sourceSearch.value = match.label;
+      if (coordRa) coordRa.value = match.item.ra.toFixed(4);
+      if (coordDec) coordDec.value = match.item.dec.toFixed(4);
+      if (match.type === "catalog") openCatalogDrawer(match.item);
+      else openDrawer(match.item);
+      return;
+    }
     const coord = parseCoordInput();
     if (!coord) {
       markCoordInputInvalid(true);
@@ -2165,6 +2289,12 @@ if (coordForm) {
     });
   });
   coordForm.addEventListener("input", () => markCoordInputInvalid(false));
+  coordRa?.addEventListener("input", () => {
+    if (sourceSearch && document.activeElement === coordRa) sourceSearch.value = "";
+  });
+  coordDec?.addEventListener("input", () => {
+    if (sourceSearch && document.activeElement === coordDec) sourceSearch.value = "";
+  });
 }
 filter.onchange = () => {
   populateBright();

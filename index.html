@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Neutrino Sky</title>
-  <link rel="stylesheet" href="styles.css?v=coord-input4" />
+  <link rel="stylesheet" href="styles.css?v=source-search2" />
 </head>
 <body>
   <canvas id="sky"></canvas>
@@ -58,6 +58,7 @@
 
   <div class="hud coord-jump">
     <form id="coordForm" class="coord-form">
+      <input id="sourceSearch" class="source-input" type="text" autocomplete="off" placeholder="Source name" />
       <input id="coordRa" type="text" inputmode="decimal" autocomplete="off" placeholder="RA" />
       <input id="coordDec" type="text" inputmode="decimal" autocomplete="off" placeholder="Dec" />
       <button type="submit">Go</button>
@@ -89,6 +90,6 @@
   <script src="catalog_overlays.js"></script>
   <script src="local_contours.js"></script>
   <script src="partial_dense.js"></script>
-  <script src="app.js?v=coord-input4"></script>
+  <script src="app.js?v=source-search2"></script>
 </body>
 </html>

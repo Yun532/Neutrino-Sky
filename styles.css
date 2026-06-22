@@ -90,7 +90,7 @@ button:hover, select:hover {
 }
 
 .coord-form input {
-  width: 104px;
+  width: 96px;
   height: 36px;
   border: 1px solid #bec7ce;
   border-radius: 5px;
@@ -102,6 +102,10 @@ button:hover, select:hover {
   font-size: 13px;
   outline: none;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+}
+
+.coord-form .source-input {
+  width: 176px;
 }
 
 .coord-form input::placeholder {
