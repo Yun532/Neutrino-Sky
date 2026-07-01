@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Neutrino Sky</title>
-  <link rel="stylesheet" href="styles.css?v=catalog-bat1" />
+  <link rel="stylesheet" href="styles.css?v=catalog-settings1" />
 </head>
 <body>
   <canvas id="sky"></canvas>
@@ -42,7 +42,26 @@
         <option value="fermi">4FGL associations</option>
         <option value="parent">All parent catalogs</option>
       </select>
+      <button id="catalogSettingsBtn" class="catalog-settings-btn" type="button">Catalog</button>
     </div>
+  </div>
+
+  <div id="catalogSettings" class="hud catalog-settings closed">
+    <div class="settings-head">
+      <strong>Catalog Settings</strong>
+      <button id="closeCatalogSettings" class="mini-btn" type="button">x</button>
+    </div>
+    <label>
+      Flux
+      <select id="catalogFluxCut">
+        <option value="all" selected>All fluxes</option>
+        <option value="top50">Top 50%</option>
+        <option value="top25">Top 25%</option>
+        <option value="top10">Top 10%</option>
+      </select>
+    </label>
+    <div class="settings-label">Swift-BAT type</div>
+    <div id="batTypeFilters" class="chip-grid"></div>
   </div>
 
   <div class="hud legend">
@@ -89,10 +108,10 @@
   <script src="smooth_raster.js"></script>
   <script src="milky_way_polygons.js"></script>
   <script src="reference_sources.js"></script>
-  <script src="catalog_overlays.js?v=catalog-bat1"></script>
-  <script src="molecular_cloud_shapes.js?v=catalog-bat1"></script>
+  <script src="catalog_overlays.js?v=catalog-settings1"></script>
+  <script src="molecular_cloud_shapes.js?v=catalog-settings1"></script>
   <script src="local_contours.js"></script>
   <script src="partial_dense.js"></script>
-  <script src="app.js?v=catalog-bat1"></script>
+  <script src="app.js?v=catalog-settings1"></script>
 </body>
 </html>

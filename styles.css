@@ -73,6 +73,76 @@ button:hover, select:hover {
   border-color: #9eabb4;
 }
 
+.catalog-settings-btn.active {
+  background: #eef3f7;
+  border-color: #7b9abb;
+  color: #244f79;
+}
+
+.catalog-settings {
+  top: 138px;
+  left: 16px;
+  width: 292px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.catalog-settings.closed {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #26323d;
+  font-size: 13px;
+}
+
+.catalog-settings label {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 9px;
+  align-items: center;
+  color: #60707d;
+  font-size: 12px;
+}
+
+.catalog-settings select {
+  width: 100%;
+}
+
+.settings-label {
+  color: #60707d;
+  font-size: 12px;
+  margin-top: 1px;
+}
+
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-chip {
+  height: 27px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.filter-chip.active {
+  border-color: #7b9abb;
+  background: rgba(31, 91, 157, 0.09);
+  color: #244f79;
+}
+
 .coord-jump {
   left: 50%;
   bottom: 18px;

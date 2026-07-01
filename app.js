@@ -5,6 +5,11 @@ const drawer = document.getElementById("drawer");
 const drawerContent = document.getElementById("drawerContent");
 const filter = document.getElementById("markerFilter");
 const catalogPreset = document.getElementById("catalogPreset");
+const catalogSettingsBtn = document.getElementById("catalogSettingsBtn");
+const catalogSettings = document.getElementById("catalogSettings");
+const closeCatalogSettings = document.getElementById("closeCatalogSettings");
+const catalogFluxCut = document.getElementById("catalogFluxCut");
+const batTypeFilters = document.getElementById("batTypeFilters");
 const coordForm = document.getElementById("coordForm");
 const sourceSearch = document.getElementById("sourceSearch");
 const coordRa = document.getElementById("coordRa");
@@ -62,6 +67,7 @@ const drag = { active: false, moved: false, x: 0, y: 0, panX: 0, panY: 0 };
 let smoothRasterCanvas = null;
 let lastReadoutMs = 0;
 let selectedCatalog = null;
+const catalogFilters = { fluxCut: "all", batType: "all" };
 const SKY_CELL_DISPLAY_MAX = Math.max(1, DATA.displayMaxTS || 8);
 const SKY_SMOOTH_DISPLAY_MAX = Math.max(2.5, SKY_CELL_DISPLAY_MAX * 0.65);
 const DETAIL_ZOOM = 5;
@@ -626,13 +632,138 @@ function catalogPresetLayers() {
   return new Set();
 }
 
+function batTypeGroup(source) {
+  const type = foldedText(source.class || source.sourceClass || "");
+  if (!type || type === "na") return "unknown";
+  if (type.includes("bz") || type.includes("fsrq") || type.includes("beamed")) return "blazar";
+  if (type.includes("sy") || type.includes("liner")) return "seyfert";
+  if (type.includes("agn")) return "agn";
+  if (type.includes("lmxb") || type.includes("hmxb") || type === "xrb" || type.includes("x-ray binary")) return "xrb";
+  if (type === "cv" || type.includes("cataclysmic")) return "cv";
+  if (type.includes("cluster")) return "cluster";
+  if (type.includes("snr") || type.includes("pulsar")) return "compact";
+  if (type.includes("unknown")) return "unknown";
+  return "other";
+}
+
+const BAT_TYPE_FILTERS = [
+  ["all", "All"],
+  ["agn", "AGN"],
+  ["seyfert", "Seyfert"],
+  ["blazar", "Blazar"],
+  ["xrb", "XRB"],
+  ["cv", "CV"],
+  ["cluster", "Cluster"],
+  ["compact", "SNR/Pulsar"],
+  ["unknown", "Unknown"],
+  ["other", "Other"],
+];
+
+function catalogFluxMetric(source) {
+  const candidates = [
+    source.fluxBat,
+    source.energyFlux100,
+    source.flux1000,
+    source.energyFluxTeV,
+    source.fluxTeV,
+    source.radioFluxJy1GHz,
+    source.batSnr,
+    source.significance,
+    source.visualWeight,
+  ];
+  for (const value of candidates) {
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+function applyCatalogSettings(sources) {
+  let out = sources;
+  if ((catalogPreset?.value || "off") === "bat" && catalogFilters.batType !== "all") {
+    out = out.filter((source) => {
+      const group = batTypeGroup(source);
+      return catalogFilters.batType === "agn"
+        ? group === "agn" || group === "seyfert" || group === "blazar"
+        : group === catalogFilters.batType;
+    });
+  }
+  if (catalogFilters.fluxCut !== "all" && out.length > 1) {
+    const fraction = { top50: 0.5, top25: 0.25, top10: 0.1 }[catalogFilters.fluxCut] || 1;
+    const scored = out.map((source) => [source, catalogFluxMetric(source)]).filter(([, metric]) => metric > 0);
+    if (!scored.length) return out;
+    const keep = Math.max(1, Math.ceil(scored.length * fraction));
+    const allowed = new Set(
+      scored
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, keep)
+        .map(([source]) => source.id),
+    );
+    out = out.filter((source) => allowed.has(source.id));
+  }
+  return out;
+}
+
+function catalogFilterSummary() {
+  const parts = [];
+  if (catalogFilters.fluxCut !== "all") {
+    parts.push({ top50: "top 50% flux", top25: "top 25% flux", top10: "top 10% flux" }[catalogFilters.fluxCut]);
+  }
+  if ((catalogPreset?.value || "off") === "bat" && catalogFilters.batType !== "all") {
+    const label = BAT_TYPE_FILTERS.find(([key]) => key === catalogFilters.batType)?.[1] || catalogFilters.batType;
+    parts.push(`BAT ${label}`);
+  }
+  return parts.filter(Boolean).join(" · ");
+}
+
+function batTypeCounts() {
+  const counts = Object.fromEntries(BAT_TYPE_FILTERS.map(([key]) => [key, 0]));
+  for (const source of CATALOG_OVERLAYS.sources) {
+    if (source.layer !== "bat") continue;
+    counts.all += 1;
+    const group = batTypeGroup(source);
+    if (counts[group] !== undefined && group !== "agn") counts[group] += 1;
+    if (group === "agn" || group === "seyfert" || group === "blazar") counts.agn += 1;
+  }
+  return counts;
+}
+
+function renderBatTypeFilters() {
+  if (!batTypeFilters) return;
+  const counts = batTypeCounts();
+  batTypeFilters.innerHTML = "";
+  for (const [key, label] of BAT_TYPE_FILTERS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `filter-chip${catalogFilters.batType === key ? " active" : ""}`;
+    btn.textContent = `${label}${counts[key] ? ` ${counts[key]}` : ""}`;
+    btn.onclick = () => {
+      catalogFilters.batType = key;
+      renderBatTypeFilters();
+      selectedCatalog = null;
+      populateBright();
+      draw();
+    };
+    batTypeFilters.appendChild(btn);
+  }
+}
+
+function setCatalogSettingsOpen(open) {
+  catalogSettings?.classList.toggle("closed", !open);
+  catalogSettingsBtn?.classList.toggle("active", open);
+}
+
+function syncCatalogSettingsState() {
+  if (catalogFluxCut) catalogFluxCut.value = catalogFilters.fluxCut;
+  renderBatTypeFilters();
+}
+
 function filteredCatalogSources() {
   const preset = catalogPreset?.value || "off";
   if (preset === "off") return [];
   const spec = catalogPresetLayers();
-  if (spec.catalog) return CATALOG_OVERLAYS.sources.filter((s) => spec.catalog.has(s.catalog));
-  if (spec.layer) return CATALOG_OVERLAYS.sources.filter((s) => spec.layer.has(s.layer));
-  if (spec.role) return CATALOG_OVERLAYS.sources.filter((s) => spec.role.has(s.catalogRole));
+  if (spec.catalog) return applyCatalogSettings(CATALOG_OVERLAYS.sources.filter((s) => spec.catalog.has(s.catalog)));
+  if (spec.layer) return applyCatalogSettings(CATALOG_OVERLAYS.sources.filter((s) => spec.layer.has(s.layer)));
+  if (spec.role) return applyCatalogSettings(CATALOG_OVERLAYS.sources.filter((s) => spec.role.has(s.catalogRole)));
   return [];
 }
 
@@ -2347,7 +2478,10 @@ function populateBright() {
         if (ats !== bts) return bts - ats;
         return (b.visualWeight || 0) - (a.visualWeight || 0);
       });
-    if (note) note.textContent = catalogPreset.options[catalogPreset.selectedIndex].text;
+    if (note) {
+      const summary = catalogFilterSummary();
+      note.textContent = `${catalogPreset.options[catalogPreset.selectedIndex].text}${summary ? ` · ${summary}` : ""}`;
+    }
     if (!sources.length) {
       box.innerHTML = `<div class="empty-list">No catalog sources in this view</div>`;
       return;
@@ -2491,6 +2625,10 @@ document.getElementById("reset").onclick = () => {
   selectedCatalog = null;
   filter.value = "known";
   if (catalogPreset) catalogPreset.value = "off";
+  catalogFilters.fluxCut = "all";
+  catalogFilters.batType = "all";
+  syncCatalogSettingsState();
+  setCatalogSettingsOpen(false);
   drawer.classList.add("closed");
   drawer.classList.remove("minimized");
   populateBright();
@@ -2522,6 +2660,17 @@ document.getElementById("toggleLabels").onclick = () => {
   showLabels = !showLabels;
   draw();
 };
+catalogSettingsBtn?.addEventListener("click", () => {
+  syncCatalogSettingsState();
+  setCatalogSettingsOpen(catalogSettings?.classList.contains("closed"));
+});
+closeCatalogSettings?.addEventListener("click", () => setCatalogSettingsOpen(false));
+catalogFluxCut?.addEventListener("change", () => {
+  catalogFilters.fluxCut = catalogFluxCut.value;
+  selectedCatalog = null;
+  populateBright();
+  draw();
+});
 if (coordForm) {
   coordForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -2571,6 +2720,7 @@ filter.onchange = () => {
 if (catalogPreset) {
   catalogPreset.onchange = () => {
     selectedCatalog = null;
+    syncCatalogSettingsState();
     populateBright();
     draw();
   };
@@ -2578,5 +2728,6 @@ if (catalogPreset) {
 addEventListener("resize", resize);
 
 populateBright();
+syncCatalogSettingsState();
 resize();
 
