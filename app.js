@@ -618,6 +618,7 @@ function catalogPresetLayers() {
   if (preset === "galactic") return { layer: new Set(["snr", "pulsar", "tev_snr", "tev_pwn", "microquasar"]) };
   if (preset === "galaxy") return { layer: new Set(["galaxy"]) };
   if (preset === "agn") return { layer: new Set(["agn"]) };
+  if (preset === "bat") return { layer: new Set(["bat"]) };
   if (preset === "alerts") return { layer: new Set(["neutrino_alert"]) };
   if (preset === "clouds") return { layer: new Set(["molecular_cloud"]) };
   if (preset === "fermi") return { layer: new Set(["fermi"]) };
@@ -677,6 +678,7 @@ function catalogStyle(s) {
     microquasar: [184, 101, 55],
     galaxy: [63, 139, 115],
     agn: [42, 112, 181],
+    bat: [143, 89, 167],
     fermi: [86, 96, 108],
   };
   const rgb = palettes[s.layer] || [82, 92, 122];
@@ -1956,6 +1958,18 @@ function typeParameterRows(source) {
       { label: "IR luminosity", value: Number.isFinite(source.irLuminosity) ? `${formatScientific(source.irLuminosity)} Lsun` : "" },
       { label: "Radio flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz, 2)} Jy` : "" },
       { label: "Gamma energy flux", value: Number.isFinite(source.energyFlux100) ? `${formatScientific(source.energyFlux100)} erg cm^-2 s^-1` : "" },
+    ];
+  }
+  if (source.layer === "bat") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
+      { label: "BAT source", value: htmlEscape(source.sourceName || "") },
+      { label: "SNR", value: Number.isFinite(source.batSnr) ? catalogNumber(source.batSnr, 2) : "" },
+      { label: "14-195 keV flux", value: Number.isFinite(source.fluxBat) ? `${catalogNumber(source.fluxBat, 2)}e-12 erg cm^-2 s^-1` : "" },
+      { label: "Photon index", value: Number.isFinite(source.photonIndex) ? catalogNumber(source.photonIndex, 2) : "" },
+      { label: "Redshift", value: Number.isFinite(z) ? catalogNumber(z, 4) : "" },
+      { label: "log Lx", value: Number.isFinite(source.hardXLuminosity) ? `${catalogNumber(source.hardXLuminosity, 2)} erg/s` : "" },
+      { label: "Other name", value: htmlEscape(source.otherNames || "") },
     ];
   }
   if (source.layer === "molecular_cloud") {
