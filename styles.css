@@ -82,7 +82,7 @@ button:hover, select:hover {
 .catalog-settings {
   top: 138px;
   left: 16px;
-  width: 292px;
+  width: 332px;
   padding: 12px;
   display: grid;
   gap: 10px;
@@ -123,10 +123,28 @@ button:hover, select:hover {
   margin-top: 1px;
 }
 
+.settings-block.hidden {
+  display: none;
+}
+
 .chip-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.layer-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.chip-section-title {
+  grid-column: 1 / -1;
+  color: #7b8791;
+  font-size: 11px;
+  line-height: 1;
+  margin-top: 2px;
 }
 
 .filter-chip {
@@ -135,6 +153,12 @@ button:hover, select:hover {
   border-radius: 999px;
   font-size: 12px;
   background: rgba(255, 255, 255, 0.78);
+}
+
+.layer-chip {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 6px;
 }
 
 .filter-chip.active {

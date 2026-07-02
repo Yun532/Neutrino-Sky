@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Neutrino Sky</title>
-  <link rel="stylesheet" href="styles.css?v=transient-catalogs1" />
+  <link rel="stylesheet" href="styles.css?v=catalog-groups1" />
 </head>
 <body>
   <canvas id="sky"></canvas>
@@ -30,22 +30,11 @@
       <select id="catalogPreset">
         <option value="off" selected>Catalog off</option>
         <option value="core">Core candidates</option>
-        <option value="snr">SNR (Green)</option>
-        <option value="pulsar">Pulsars (ATNF)</option>
-        <option value="tev">TeV sources</option>
-        <option value="galactic">Galactic accelerators</option>
-        <option value="galaxy">Galaxies / starburst</option>
-        <option value="agn">AGN / blazars</option>
-        <option value="bat">Swift-BAT hard X-ray</option>
-        <option value="radioTransient">Radio variables</option>
-        <option value="xrayTransient">X-ray transients</option>
-        <option value="gammaVariable">Gamma variables</option>
-        <option value="frb">FRB bursts</option>
-        <option value="transient">Multi-band transients</option>
+        <option value="steady">Steady sources</option>
+        <option value="transient">Transient / variable</option>
+        <option value="allCatalogs">All catalogs</option>
         <option value="alerts">IceCube alerts</option>
         <option value="clouds">Molecular clouds</option>
-        <option value="fermi">4FGL associations</option>
-        <option value="parent">All parent catalogs</option>
       </select>
       <button id="catalogSettingsBtn" class="catalog-settings-btn" type="button">Catalog</button>
     </div>
@@ -57,14 +46,18 @@
       <button id="closeCatalogSettings" class="mini-btn" type="button">x</button>
     </div>
     <label>
-      Flux
+      Strength
       <select id="catalogFluxCut">
-        <option value="all" selected>All fluxes</option>
+        <option value="all" selected>All strengths</option>
         <option value="top50">Top 50%</option>
         <option value="top25">Top 25%</option>
         <option value="top10">Top 10%</option>
       </select>
     </label>
+    <div id="catalogLayerBlock" class="settings-block">
+      <div class="settings-label">Layers</div>
+      <div id="catalogLayerFilters" class="chip-grid layer-chip-grid"></div>
+    </div>
     <div id="catalogTypeLabel" class="settings-label">Type</div>
     <div id="batTypeFilters" class="chip-grid"></div>
   </div>
@@ -113,10 +106,10 @@
   <script src="smooth_raster.js"></script>
   <script src="milky_way_polygons.js"></script>
   <script src="reference_sources.js"></script>
-  <script src="catalog_overlays.js?v=transient-catalogs1"></script>
-  <script src="molecular_cloud_shapes.js?v=transient-catalogs1"></script>
+  <script src="catalog_overlays.js?v=catalog-groups1"></script>
+  <script src="molecular_cloud_shapes.js?v=catalog-groups1"></script>
   <script src="local_contours.js"></script>
   <script src="partial_dense.js"></script>
-  <script src="app.js?v=transient-catalogs1"></script>
+  <script src="app.js?v=catalog-groups1"></script>
 </body>
 </html>

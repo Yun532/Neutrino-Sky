@@ -11,6 +11,8 @@ const closeCatalogSettings = document.getElementById("closeCatalogSettings");
 const catalogFluxCut = document.getElementById("catalogFluxCut");
 const batTypeFilters = document.getElementById("batTypeFilters");
 const catalogTypeLabel = document.getElementById("catalogTypeLabel");
+const catalogLayerBlock = document.getElementById("catalogLayerBlock");
+const catalogLayerFilters = document.getElementById("catalogLayerFilters");
 const coordForm = document.getElementById("coordForm");
 const sourceSearch = document.getElementById("sourceSearch");
 const coordRa = document.getElementById("coordRa");
@@ -68,7 +70,7 @@ const drag = { active: false, moved: false, x: 0, y: 0, panX: 0, panY: 0 };
 let smoothRasterCanvas = null;
 let lastReadoutMs = 0;
 let selectedCatalog = null;
-const catalogFilters = { fluxCut: "all", batType: "all" };
+const catalogFilters = { fluxCut: "all", batType: "all", layers: new Set() };
 const SKY_CELL_DISPLAY_MAX = Math.max(1, DATA.displayMaxTS || 8);
 const SKY_SMOOTH_DISPLAY_MAX = Math.max(2.5, SKY_CELL_DISPLAY_MAX * 0.65);
 const DETAIL_ZOOM = 5;
@@ -621,23 +623,67 @@ function filteredMarkers() {
 function catalogPresetLayers() {
   const preset = catalogPreset?.value || "off";
   if (preset === "core") return { catalog: new Set(["core references"]) };
-  if (preset === "snr") return { layer: new Set(["snr"]) };
-  if (preset === "pulsar") return { layer: new Set(["pulsar"]) };
-  if (preset === "tev") return { layer: new Set(["tev", "tev_snr", "tev_pwn"]) };
-  if (preset === "galactic") return { layer: new Set(["snr", "pulsar", "tev_snr", "tev_pwn", "microquasar"]) };
-  if (preset === "galaxy") return { layer: new Set(["galaxy"]) };
-  if (preset === "agn") return { layer: new Set(["agn"]) };
-  if (preset === "bat") return { layer: new Set(["bat"]) };
-  if (preset === "radioTransient") return { layer: new Set(["radio_transient"]) };
-  if (preset === "xrayTransient") return { layer: new Set(["xray_transient"]) };
-  if (preset === "gammaVariable") return { layer: new Set(["gamma_variable"]) };
-  if (preset === "frb") return { layer: new Set(["frb"]) };
-  if (preset === "transient") return { layer: new Set(["radio_transient", "xray_transient", "gamma_variable", "frb"]) };
   if (preset === "alerts") return { layer: new Set(["neutrino_alert"]) };
   if (preset === "clouds") return { layer: new Set(["molecular_cloud"]) };
-  if (preset === "fermi") return { layer: new Set(["fermi"]) };
-  if (preset === "parent") return { role: new Set(["parent"]) };
   return new Set();
+}
+
+const STEADY_LAYER_OPTIONS = [
+  { key: "core", label: "Core", catalog: new Set(["core references"]) },
+  { key: "agn", label: "AGN", layer: new Set(["agn"]) },
+  { key: "galaxy", label: "Galaxies", layer: new Set(["galaxy"]) },
+  { key: "bat", label: "BAT survey", layer: new Set(["bat"]) },
+  { key: "tev", label: "TeV", layer: new Set(["tev", "tev_snr", "tev_pwn"]) },
+  { key: "snr", label: "SNR", layer: new Set(["snr"]) },
+  { key: "pulsar", label: "Pulsars", layer: new Set(["pulsar"]) },
+  { key: "microquasar", label: "Microquasars", layer: new Set(["microquasar"]) },
+  { key: "clouds", label: "Clouds", layer: new Set(["molecular_cloud"]) },
+  { key: "fermi", label: "4FGL assoc", layer: new Set(["fermi"]) },
+];
+
+const TRANSIENT_LAYER_OPTIONS = [
+  { key: "xray_transient", label: "X-ray", layer: new Set(["xray_transient"]) },
+  { key: "gamma_variable", label: "Gamma", layer: new Set(["gamma_variable"]) },
+  { key: "radio_transient", label: "Radio", layer: new Set(["radio_transient"]) },
+  { key: "frb", label: "FRB", layer: new Set(["frb"]) },
+  { key: "neutrino_alert", label: "IceCube", layer: new Set(["neutrino_alert"]) },
+];
+
+const DEFAULT_LAYER_KEYS = {
+  steady: ["core", "agn", "galaxy", "bat", "tev", "snr", "microquasar", "clouds"],
+  transient: ["xray_transient", "gamma_variable"],
+  allCatalogs: [...STEADY_LAYER_OPTIONS, ...TRANSIENT_LAYER_OPTIONS].map((option) => option.key),
+};
+
+function aggregateLayerOptions() {
+  const preset = catalogPreset?.value || "off";
+  if (preset === "steady") return STEADY_LAYER_OPTIONS;
+  if (preset === "transient") return TRANSIENT_LAYER_OPTIONS;
+  if (preset === "allCatalogs") return [...STEADY_LAYER_OPTIONS, ...TRANSIENT_LAYER_OPTIONS];
+  return [];
+}
+
+function ensureCatalogLayerDefaults(force = false) {
+  const preset = catalogPreset?.value || "off";
+  const defaults = DEFAULT_LAYER_KEYS[preset] || [];
+  if (!defaults.length) {
+    catalogFilters.layers.clear();
+    return;
+  }
+  const valid = new Set(aggregateLayerOptions().map((item) => item.key));
+  for (const key of [...catalogFilters.layers]) {
+    if (!valid.has(key)) catalogFilters.layers.delete(key);
+  }
+  if (force || !catalogFilters.layers.size) {
+    catalogFilters.layers = new Set(defaults);
+  }
+}
+
+function sourceMatchesLayerOption(source, option) {
+  if (option.catalog && option.catalog.has(source.catalog)) return true;
+  if (option.layer && option.layer.has(source.layer)) return true;
+  if (option.role && option.role.has(source.catalogRole)) return true;
+  return false;
 }
 
 function batTypeGroup(source) {
@@ -680,7 +726,6 @@ function simpleTypeToken(source) {
 
 function catalogTypeGroup(source) {
   const preset = catalogPreset?.value || "off";
-  if (preset === "transient") return source.layer || "other";
   if (source.layer === "bat" || preset === "bat") return batTypeGroup(source);
   const type = simpleTypeToken(source);
   if (source.layer === "radio_transient") {
@@ -736,6 +781,13 @@ function catalogTypeLabelFor(key) {
 function baseCatalogSources() {
   const preset = catalogPreset?.value || "off";
   if (preset === "off") return [];
+  const aggregateOptions = aggregateLayerOptions();
+  if (aggregateOptions.length) {
+    ensureCatalogLayerDefaults();
+    const activeOptions = aggregateOptions.filter((option) => catalogFilters.layers.has(option.key));
+    if (!activeOptions.length) return [];
+    return CATALOG_OVERLAYS.sources.filter((source) => activeOptions.some((option) => sourceMatchesLayerOption(source, option)));
+  }
   const spec = catalogPresetLayers();
   if (spec.catalog) return CATALOG_OVERLAYS.sources.filter((s) => spec.catalog.has(s.catalog));
   if (spec.layer) return CATALOG_OVERLAYS.sources.filter((s) => spec.layer.has(s.layer));
@@ -799,13 +851,26 @@ function applyCatalogSettings(sources) {
 
 function catalogFilterSummary() {
   const parts = [];
+  const layerSummary = catalogLayerSummary();
+  if (layerSummary) parts.push(layerSummary);
   if (catalogFilters.fluxCut !== "all") {
-    parts.push({ top50: "top 50% flux", top25: "top 25% flux", top10: "top 10% flux" }[catalogFilters.fluxCut]);
+    parts.push({ top50: "top 50% strength", top25: "top 25% strength", top10: "top 10% strength" }[catalogFilters.fluxCut]);
   }
   if (catalogFilters.batType !== "all") {
     parts.push(catalogTypeLabelFor(catalogFilters.batType));
   }
   return parts.filter(Boolean).join(" · ");
+}
+
+function catalogLayerSummary() {
+  const options = aggregateLayerOptions();
+  if (!options.length) return "";
+  ensureCatalogLayerDefaults();
+  const active = options.filter((option) => catalogFilters.layers.has(option.key));
+  if (!active.length) return "no layers";
+  if (active.length === options.length) return "all layers";
+  if (active.length <= 3) return active.map((option) => option.label).join(" + ");
+  return `${active.length} layers`;
 }
 
 function batTypeCounts() {
@@ -844,6 +909,54 @@ function renderBatTypeFilters() {
   }
 }
 
+function renderCatalogLayerFilters() {
+  if (!catalogLayerFilters || !catalogLayerBlock) return;
+  const options = aggregateLayerOptions();
+  ensureCatalogLayerDefaults();
+  catalogLayerBlock.classList.toggle("hidden", !options.length);
+  catalogLayerFilters.innerHTML = "";
+  if (!options.length) return;
+
+  const counts = new Map(options.map((option) => [option.key, 0]));
+  for (const source of CATALOG_OVERLAYS.sources) {
+    for (const option of options) {
+      if (sourceMatchesLayerOption(source, option)) counts.set(option.key, (counts.get(option.key) || 0) + 1);
+    }
+  }
+
+  const groups = [];
+  const hasSteady = options.some((option) => STEADY_LAYER_OPTIONS.some((item) => item.key === option.key));
+  const hasTransient = options.some((option) => TRANSIENT_LAYER_OPTIONS.some((item) => item.key === option.key));
+  if (hasSteady) groups.push(["Steady", options.filter((option) => STEADY_LAYER_OPTIONS.some((item) => item.key === option.key))]);
+  if (hasTransient) groups.push(["Transient", options.filter((option) => TRANSIENT_LAYER_OPTIONS.some((item) => item.key === option.key))]);
+
+  for (const [title, items] of groups) {
+    if (groups.length > 1) {
+      const titleEl = document.createElement("div");
+      titleEl.className = "chip-section-title";
+      titleEl.textContent = title;
+      catalogLayerFilters.appendChild(titleEl);
+    }
+    for (const option of items) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `filter-chip layer-chip${catalogFilters.layers.has(option.key) ? " active" : ""}`;
+      btn.textContent = `${option.label}${counts.get(option.key) ? ` ${counts.get(option.key)}` : ""}`;
+      btn.onclick = () => {
+        if (catalogFilters.layers.has(option.key)) catalogFilters.layers.delete(option.key);
+        else catalogFilters.layers.add(option.key);
+        catalogFilters.batType = "all";
+        renderCatalogLayerFilters();
+        renderBatTypeFilters();
+        selectedCatalog = null;
+        populateBright();
+        draw();
+      };
+      catalogLayerFilters.appendChild(btn);
+    }
+  }
+}
+
 function setCatalogSettingsOpen(open) {
   catalogSettings?.classList.toggle("closed", !open);
   catalogSettingsBtn?.classList.toggle("active", open);
@@ -851,6 +964,7 @@ function setCatalogSettingsOpen(open) {
 
 function syncCatalogSettingsState() {
   if (catalogFluxCut) catalogFluxCut.value = catalogFilters.fluxCut;
+  renderCatalogLayerFilters();
   renderBatTypeFilters();
 }
 
@@ -2778,6 +2892,7 @@ document.getElementById("reset").onclick = () => {
   if (catalogPreset) catalogPreset.value = "off";
   catalogFilters.fluxCut = "all";
   catalogFilters.batType = "all";
+  catalogFilters.layers.clear();
   syncCatalogSettingsState();
   setCatalogSettingsOpen(false);
   drawer.classList.add("closed");
@@ -2872,6 +2987,7 @@ if (catalogPreset) {
   catalogPreset.onchange = () => {
     selectedCatalog = null;
     catalogFilters.batType = "all";
+    ensureCatalogLayerDefaults(true);
     syncCatalogSettingsState();
     populateBright();
     draw();
