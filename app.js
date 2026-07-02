@@ -70,7 +70,7 @@ const drag = { active: false, moved: false, x: 0, y: 0, panX: 0, panY: 0 };
 let smoothRasterCanvas = null;
 let lastReadoutMs = 0;
 let selectedCatalog = null;
-const catalogFilters = { fluxCut: "all", batType: "all", layers: new Set() };
+const catalogFilters = { fluxCut: "all", batType: "all", layers: new Set(), layerPreset: "" };
 const SKY_CELL_DISPLAY_MAX = Math.max(1, DATA.displayMaxTS || 8);
 const SKY_SMOOTH_DISPLAY_MAX = Math.max(2.5, SKY_CELL_DISPLAY_MAX * 0.65);
 const DETAIL_ZOOM = 5;
@@ -650,9 +650,9 @@ const TRANSIENT_LAYER_OPTIONS = [
 ];
 
 const DEFAULT_LAYER_KEYS = {
-  steady: ["core", "agn", "galaxy", "bat", "tev", "snr", "microquasar", "clouds"],
+  steady: ["core", "agn", "galaxy", "bat"],
   transient: ["xray_transient", "gamma_variable"],
-  allCatalogs: [...STEADY_LAYER_OPTIONS, ...TRANSIENT_LAYER_OPTIONS].map((option) => option.key),
+  allCatalogs: ["core", "agn", "bat", "xray_transient", "gamma_variable"],
 };
 
 function aggregateLayerOptions() {
@@ -668,14 +668,16 @@ function ensureCatalogLayerDefaults(force = false) {
   const defaults = DEFAULT_LAYER_KEYS[preset] || [];
   if (!defaults.length) {
     catalogFilters.layers.clear();
+    catalogFilters.layerPreset = preset;
     return;
   }
   const valid = new Set(aggregateLayerOptions().map((item) => item.key));
   for (const key of [...catalogFilters.layers]) {
     if (!valid.has(key)) catalogFilters.layers.delete(key);
   }
-  if (force || !catalogFilters.layers.size) {
+  if (force || catalogFilters.layerPreset !== preset) {
     catalogFilters.layers = new Set(defaults);
+    catalogFilters.layerPreset = preset;
   }
 }
 
@@ -2893,6 +2895,7 @@ document.getElementById("reset").onclick = () => {
   catalogFilters.fluxCut = "all";
   catalogFilters.batType = "all";
   catalogFilters.layers.clear();
+  catalogFilters.layerPreset = "off";
   syncCatalogSettingsState();
   setCatalogSettingsOpen(false);
   drawer.classList.add("closed");
