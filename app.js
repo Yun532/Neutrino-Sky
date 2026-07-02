@@ -10,6 +10,7 @@ const catalogSettings = document.getElementById("catalogSettings");
 const closeCatalogSettings = document.getElementById("closeCatalogSettings");
 const catalogFluxCut = document.getElementById("catalogFluxCut");
 const batTypeFilters = document.getElementById("batTypeFilters");
+const catalogTypeLabel = document.getElementById("catalogTypeLabel");
 const coordForm = document.getElementById("coordForm");
 const sourceSearch = document.getElementById("sourceSearch");
 const coordRa = document.getElementById("coordRa");
@@ -120,6 +121,8 @@ function sourceSearchFields(source) {
     source.name,
     source.sourceName,
     source.association,
+    source.alternateName,
+    source.repeaterName,
     source.otherNames,
     source.tevcat,
     source.assocTev,
@@ -625,6 +628,11 @@ function catalogPresetLayers() {
   if (preset === "galaxy") return { layer: new Set(["galaxy"]) };
   if (preset === "agn") return { layer: new Set(["agn"]) };
   if (preset === "bat") return { layer: new Set(["bat"]) };
+  if (preset === "radioTransient") return { layer: new Set(["radio_transient"]) };
+  if (preset === "xrayTransient") return { layer: new Set(["xray_transient"]) };
+  if (preset === "gammaVariable") return { layer: new Set(["gamma_variable"]) };
+  if (preset === "frb") return { layer: new Set(["frb"]) };
+  if (preset === "transient") return { layer: new Set(["radio_transient", "xray_transient", "gamma_variable", "frb"]) };
   if (preset === "alerts") return { layer: new Set(["neutrino_alert"]) };
   if (preset === "clouds") return { layer: new Set(["molecular_cloud"]) };
   if (preset === "fermi") return { layer: new Set(["fermi"]) };
@@ -659,16 +667,102 @@ const BAT_TYPE_FILTERS = [
   ["other", "Other"],
 ];
 
+const TRANSIENT_LAYER_LABELS = {
+  radio_transient: "Radio",
+  xray_transient: "X-ray",
+  gamma_variable: "Gamma",
+  frb: "FRB",
+};
+
+function simpleTypeToken(source) {
+  return foldedText(source.class || source.sourceClass || source.layer || "");
+}
+
+function catalogTypeGroup(source) {
+  const preset = catalogPreset?.value || "off";
+  if (preset === "transient") return source.layer || "other";
+  if (source.layer === "bat" || preset === "bat") return batTypeGroup(source);
+  const type = simpleTypeToken(source);
+  if (source.layer === "radio_transient") {
+    if (type.includes("transient")) return "radio_transient";
+    if (type.includes("variable")) return "radio_variable";
+    if (type.includes("qso") || type.includes("agn") || type.includes("radio")) return "agn";
+    if (type.includes("star")) return "star";
+    return "other";
+  }
+  if (source.layer === "xray_transient") {
+    if (type.includes("lmxb") || type.includes("hmxb") || type === "xrb" || type.includes("binary")) return "xrb";
+    if (type.includes("sy") || type.includes("agn") || type.includes("quasar") || type.includes("bl lac")) return "agn";
+    if (type.includes("cv") || type.includes("dq her")) return "cv";
+    if (type.includes("pulsar") || type.includes("snr")) return "compact";
+    if (type.includes("star") || type.includes("flare") || type.includes("rs cvn")) return "star";
+    if (type.includes("null") || type.includes("unknown")) return "unknown";
+    return "other";
+  }
+  if (source.layer === "gamma_variable") {
+    if (type.includes("bll") || type.includes("fsrq") || type.includes("bcu") || type.includes("blazar")) return "blazar";
+    if (type.includes("agn") || type.includes("sey") || type.includes("rdg") || type.includes("qso")) return "agn";
+    if (type.includes("psr") || type.includes("pulsar")) return "compact";
+    return "other";
+  }
+  if (source.layer === "frb") {
+    return type.includes("repeating") ? "repeater" : "frb";
+  }
+  return type || "other";
+}
+
+function catalogTypeLabelFor(key) {
+  return {
+    all: "All",
+    agn: "AGN",
+    seyfert: "Seyfert",
+    blazar: "Blazar",
+    xrb: "XRB",
+    cv: "CV",
+    cluster: "Cluster",
+    compact: "SNR/Pulsar",
+    unknown: "Unknown",
+    other: "Other",
+    radio_variable: "Variable",
+    radio_transient: "Transient",
+    star: "Star",
+    frb: "One-off",
+    repeater: "Repeater",
+    gamma_variable: "Gamma",
+    xray_transient: "X-ray",
+  }[key] || TRANSIENT_LAYER_LABELS[key] || key.replaceAll("_", " ");
+}
+
+function baseCatalogSources() {
+  const preset = catalogPreset?.value || "off";
+  if (preset === "off") return [];
+  const spec = catalogPresetLayers();
+  if (spec.catalog) return CATALOG_OVERLAYS.sources.filter((s) => spec.catalog.has(s.catalog));
+  if (spec.layer) return CATALOG_OVERLAYS.sources.filter((s) => spec.layer.has(s.layer));
+  if (spec.role) return CATALOG_OVERLAYS.sources.filter((s) => spec.role.has(s.catalogRole));
+  return [];
+}
+
 function catalogFluxMetric(source) {
   const candidates = [
     source.fluxBat,
+    source.peakMcrab,
+    source.meanMcrab,
+    source.tendayMcrab,
+    source.radioFluxJy1GHz,
+    source.radioMeanFluxJy,
+    source.fluxJy,
+    source.fluenceJyMs,
+    source.flareRatio,
     source.energyFlux100,
     source.flux1000,
     source.energyFluxTeV,
     source.fluxTeV,
-    source.radioFluxJy1GHz,
     source.batSnr,
+    source.snr,
+    source.maxSigma,
     source.significance,
+    source.variability,
     source.visualWeight,
   ];
   for (const value of candidates) {
@@ -679,9 +773,9 @@ function catalogFluxMetric(source) {
 
 function applyCatalogSettings(sources) {
   let out = sources;
-  if ((catalogPreset?.value || "off") === "bat" && catalogFilters.batType !== "all") {
+  if (catalogFilters.batType !== "all") {
     out = out.filter((source) => {
-      const group = batTypeGroup(source);
+      const group = catalogTypeGroup(source);
       return catalogFilters.batType === "agn"
         ? group === "agn" || group === "seyfert" || group === "blazar"
         : group === catalogFilters.batType;
@@ -708,21 +802,19 @@ function catalogFilterSummary() {
   if (catalogFilters.fluxCut !== "all") {
     parts.push({ top50: "top 50% flux", top25: "top 25% flux", top10: "top 10% flux" }[catalogFilters.fluxCut]);
   }
-  if ((catalogPreset?.value || "off") === "bat" && catalogFilters.batType !== "all") {
-    const label = BAT_TYPE_FILTERS.find(([key]) => key === catalogFilters.batType)?.[1] || catalogFilters.batType;
-    parts.push(`BAT ${label}`);
+  if (catalogFilters.batType !== "all") {
+    parts.push(catalogTypeLabelFor(catalogFilters.batType));
   }
   return parts.filter(Boolean).join(" · ");
 }
 
 function batTypeCounts() {
-  const counts = Object.fromEntries(BAT_TYPE_FILTERS.map(([key]) => [key, 0]));
-  for (const source of CATALOG_OVERLAYS.sources) {
-    if (source.layer !== "bat") continue;
+  const counts = { all: 0 };
+  for (const source of baseCatalogSources()) {
     counts.all += 1;
-    const group = batTypeGroup(source);
-    if (counts[group] !== undefined && group !== "agn") counts[group] += 1;
-    if (group === "agn" || group === "seyfert" || group === "blazar") counts.agn += 1;
+    const group = catalogTypeGroup(source);
+    counts[group] = (counts[group] || 0) + 1;
+    if (group === "seyfert" || group === "blazar") counts.agn = (counts.agn || 0) + 1;
   }
   return counts;
 }
@@ -730,8 +822,13 @@ function batTypeCounts() {
 function renderBatTypeFilters() {
   if (!batTypeFilters) return;
   const counts = batTypeCounts();
+  if (catalogTypeLabel) {
+    catalogTypeLabel.textContent = (catalogPreset?.value || "off") === "bat" ? "Swift-BAT type" : "Type";
+  }
   batTypeFilters.innerHTML = "";
-  for (const [key, label] of BAT_TYPE_FILTERS) {
+  const keys = ["all", ...Object.keys(counts).filter((key) => key !== "all" && counts[key] > 0).sort((a, b) => counts[b] - counts[a])].slice(0, 12);
+  for (const key of keys) {
+    const label = catalogTypeLabelFor(key);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `filter-chip${catalogFilters.batType === key ? " active" : ""}`;
@@ -758,13 +855,7 @@ function syncCatalogSettingsState() {
 }
 
 function filteredCatalogSources() {
-  const preset = catalogPreset?.value || "off";
-  if (preset === "off") return [];
-  const spec = catalogPresetLayers();
-  if (spec.catalog) return applyCatalogSettings(CATALOG_OVERLAYS.sources.filter((s) => spec.catalog.has(s.catalog)));
-  if (spec.layer) return applyCatalogSettings(CATALOG_OVERLAYS.sources.filter((s) => spec.layer.has(s.layer)));
-  if (spec.role) return applyCatalogSettings(CATALOG_OVERLAYS.sources.filter((s) => spec.role.has(s.catalogRole)));
-  return [];
+  return applyCatalogSettings(baseCatalogSources());
 }
 
 function bestCatalogTS(s) {
@@ -810,6 +901,10 @@ function catalogStyle(s) {
     galaxy: [63, 139, 115],
     agn: [42, 112, 181],
     bat: [143, 89, 167],
+    radio_transient: [46, 132, 139],
+    xray_transient: [181, 92, 58],
+    gamma_variable: [120, 86, 174],
+    frb: [199, 141, 43],
     fermi: [86, 96, 108],
   };
   const rgb = palettes[s.layer] || [82, 92, 122];
@@ -819,6 +914,14 @@ function catalogStyle(s) {
       ? "diamond"
       : s.layer === "tev" || s.layer === "tev_pwn"
         ? "square"
+        : s.layer === "radio_transient"
+          ? "ring"
+          : s.layer === "xray_transient"
+            ? "diamond"
+            : s.layer === "gamma_variable"
+              ? "square"
+              : s.layer === "frb"
+                ? "cross"
         : "circle";
   return {
     fill: `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`,
@@ -2103,6 +2206,51 @@ function typeParameterRows(source) {
       { label: "Other name", value: htmlEscape(source.otherNames || "") },
     ];
   }
+  if (source.layer === "radio_transient") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
+      { label: "Peak 1.4 GHz flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz * 1000, 2)} mJy` : "" },
+      { label: "Mean 1.4 GHz flux", value: Number.isFinite(source.radioMeanFluxJy) ? `${catalogNumber(source.radioMeanFluxJy * 1000, 2)} mJy` : "" },
+      { label: "Variability sigma", value: Number.isFinite(source.variability) ? catalogNumber(source.variability, 2) : "" },
+      { label: "Max sigma", value: Number.isFinite(source.maxSigma) ? catalogNumber(source.maxSigma, 2) : "" },
+      { label: "Flux ratio", value: Number.isFinite(source.flareRatio) ? catalogNumber(source.flareRatio, 2) : "" },
+      { label: "Timescale", value: Number.isFinite(source.timescaleDays) ? `${catalogNumber(source.timescaleDays, 0)} d` : "" },
+      { label: "Optical mag", value: Number.isFinite(source.opticalMag) ? catalogNumber(source.opticalMag, 2) : "" },
+    ];
+  }
+  if (source.layer === "xray_transient") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
+      { label: "Peak", value: Number.isFinite(source.peakMcrab) ? `${catalogNumber(source.peakMcrab, 0)} mCrab` : "" },
+      { label: "Mean", value: Number.isFinite(source.meanMcrab) ? `${catalogNumber(source.meanMcrab, 0)} mCrab` : "" },
+      { label: "10-day", value: Number.isFinite(source.tendayMcrab) ? `${catalogNumber(source.tendayMcrab, 0)} mCrab` : "" },
+      { label: "Active days", value: Number.isFinite(source.activeDays) ? catalogNumber(source.activeDays, 0) : "" },
+      { label: "Last MJD", value: Number.isFinite(source.lastMjd) ? catalogNumber(source.lastMjd, 0) : "" },
+      { label: "Alternate name", value: htmlEscape(source.alternateName || "") },
+    ];
+  }
+  if (source.layer === "gamma_variable") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
+      { label: "Variability", value: Number.isFinite(source.variability) ? catalogNumber(source.variability, 2) : "" },
+      { label: "Significance", value: Number.isFinite(source.significance) ? catalogNumber(source.significance, 2) : "" },
+      { label: "Gamma energy flux", value: Number.isFinite(source.energyFlux100) ? `${formatScientific(source.energyFlux100)} erg cm^-2 s^-1` : "" },
+      { label: "Gamma flux >1 GeV", value: Number.isFinite(source.flux1000) ? `${formatScientific(source.flux1000)} ph cm^-2 s^-1` : "" },
+      { label: "TeV association", value: htmlEscape(source.assocTev || "") },
+    ];
+  }
+  if (source.layer === "frb") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || "") },
+      { label: "Event MJD", value: Number.isFinite(source.mjd) ? catalogNumber(source.mjd, 6) : "" },
+      { label: "SNR", value: Number.isFinite(source.snr) ? catalogNumber(source.snr, 1) : "" },
+      { label: "DM", value: Number.isFinite(source.dm) ? `${catalogNumber(source.dm, 1)} pc cm^-3` : "" },
+      { label: "Peak flux", value: Number.isFinite(source.fluxJy) ? `${catalogNumber(source.fluxJy, 2)} Jy` : "" },
+      { label: "Fluence", value: Number.isFinite(source.fluenceJyMs) ? `${catalogNumber(source.fluenceJyMs, 2)} Jy ms` : "" },
+      { label: "Width", value: Number.isFinite(source.widthSec) ? `${catalogNumber(source.widthSec * 1000, 3)} ms` : "" },
+      { label: "Repeater", value: htmlEscape(source.repeaterName || "") },
+    ];
+  }
   if (source.layer === "molecular_cloud") {
     return [
       { label: "Class", value: htmlEscape(source.class || source.sourceClass || "") },
@@ -2176,6 +2324,9 @@ function sourceInfoSections(source, pix, shown) {
     ]),
     infoSection("Flux / Activity", [
       { label: "1 GHz flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz, 2)} Jy` : "" },
+      { label: "Radio flux ratio", value: Number.isFinite(source.flareRatio) ? catalogNumber(source.flareRatio, 2) : "" },
+      { label: "BAT peak", value: Number.isFinite(source.peakMcrab) ? `${catalogNumber(source.peakMcrab, 0)} mCrab` : "" },
+      { label: "FRB fluence", value: Number.isFinite(source.fluenceJyMs) ? `${catalogNumber(source.fluenceJyMs, 2)} Jy ms` : "" },
       { label: "Fermi flux >1 GeV", value: Number.isFinite(source.flux1000) ? `${formatScientific(source.flux1000)} ph cm^-2 s^-1` : "" },
       { label: "Fermi energy flux", value: Number.isFinite(source.energyFlux100) ? `${formatScientific(source.energyFlux100)} erg cm^-2 s^-1` : "" },
       { label: "TeV flux", value: Number.isFinite(source.fluxTeV) ? `${formatScientific(source.fluxTeV)} cm^-2 s^-1` : "" },
@@ -2720,6 +2871,7 @@ filter.onchange = () => {
 if (catalogPreset) {
   catalogPreset.onchange = () => {
     selectedCatalog = null;
+    catalogFilters.batType = "all";
     syncCatalogSettingsState();
     populateBright();
     draw();
