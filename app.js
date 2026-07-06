@@ -28,6 +28,8 @@ const REFERENCE_SOURCES = window.REFERENCE_SOURCES || [];
 const PARTIAL_DENSE = window.PARTIAL_DENSE || null;
 const CATALOG_OVERLAYS = window.CATALOG_OVERLAYS || { metadata: { counts: {} }, sources: [] };
 const MOLECULAR_CLOUD_SHAPES = window.MOLECULAR_CLOUD_SHAPES || { clouds: {} };
+const catalogSourceCache = { baseKey: "", base: [], filteredKey: "", filtered: [] };
+let cachedNeutrinoAlerts = null;
 
 filter.value = "known";
 if (catalogPreset) catalogPreset.value = "allCatalogs";
@@ -690,161 +692,6 @@ function sourceMatchesLayerOption(source, option) {
   return false;
 }
 
-const TEV_PEV_LAYERS = new Set(["tev", "tev_snr", "tev_pwn", "lhaaso", "hawc"]);
-
-function isTevPevSource(source) {
-  return TEV_PEV_LAYERS.has(source.layer);
-}
-
-function mergeAliasToken(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/\b(1lhaaso|lhaaso|3hwc|hawc|hess|tevcat|tev)\b/g, " ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, "");
-}
-
-function isUsefulMergeAlias(value) {
-  if (!value || value.length < 4) return false;
-  if (/^j\d{3,}/.test(value)) return value.length >= 7;
-  if (/^\d+$/.test(value)) return false;
-  return true;
-}
-
-function rawMergeAliases(source) {
-  const values = [];
-  const add = (value) => {
-    const cleanValue = String(value || "").trim();
-    if (!cleanValue || cleanValue === "--" || cleanValue.startsWith("--")) return;
-    values.push(cleanValue);
-  };
-  add(source.name);
-  add(source.sourceName);
-  add(source.association);
-  add(source.assocTev);
-  add(source.tevcat);
-  add(source.b1950Name);
-  String(source.otherNames || "")
-    .split(/[;,/]/)
-    .forEach(add);
-  return values;
-}
-
-function mergeAliasSet(source) {
-  const aliases = Array.isArray(source.mergedAliases) ? source.mergedAliases : rawMergeAliases(source);
-  return new Set(aliases.map(mergeAliasToken).filter(isUsefulMergeAlias));
-}
-
-function hasSharedMergeAlias(a, b) {
-  const aSet = mergeAliasSet(a);
-  if (!aSet.size) return false;
-  for (const token of mergeAliasSet(b)) {
-    if (aSet.has(token)) return true;
-  }
-  return false;
-}
-
-function sourceMergeRadius(source) {
-  const size = Number.isFinite(source.sizeDeg) ? source.sizeDeg : 0;
-  const ext = Number.isFinite(source.extensionDeg) ? source.extensionDeg : 0;
-  return clamp(Math.max(size, ext, 0.12), 0.12, 0.55);
-}
-
-function shouldMergeTevPev(a, b) {
-  const distance = sep(a, b);
-  if (distance <= 0.06) return true;
-  if (hasSharedMergeAlias(a, b) && distance <= Math.max(sourceMergeRadius(a), sourceMergeRadius(b), 0.45)) return true;
-  return false;
-}
-
-function displayNameScore(name) {
-  const text = String(name || "").trim();
-  if (!text) return -100;
-  const folded = foldedText(text);
-  let score = 0;
-  if (!/^((1?lhaaso|3hwc|hess|tev)\s*)?j\d/i.test(text)) score += 6;
-  if (folded.includes("crab") || folded.includes("vela") || folded.includes("cta") || folded.includes("mgro")) score += 2;
-  if (text.length <= 18) score += 1;
-  if (text.length > 28) score -= 1;
-  return score;
-}
-
-function bestMergedName(members) {
-  const candidates = [];
-  for (const source of members) {
-    candidates.push(source.association, source.tevcat, source.name, source.sourceName);
-  }
-  return candidates
-    .filter(Boolean)
-    .sort((a, b) => displayNameScore(b) - displayNameScore(a) || String(a).length - String(b).length)[0]
-    || catalogDisplayName(members[0]);
-}
-
-function primaryMergedSource(members) {
-  const catalogWeight = {
-    "LHAASO 1st catalog": 4,
-    "3HWC": 3.4,
-    "HGPS": 3,
-    "gamma-cat": 2.6,
-  };
-  return members.slice().sort((a, b) => {
-    const aScore = (catalogWeight[a.catalog] || 0) + clamp(bestCatalogTS(a), 0, 20) * 0.04 + clamp(a.visualWeight || 0, 0, 5) * 0.4;
-    const bScore = (catalogWeight[b.catalog] || 0) + clamp(bestCatalogTS(b), 0, 20) * 0.04 + clamp(b.visualWeight || 0, 0, 5) * 0.4;
-    return bScore - aScore;
-  })[0];
-}
-
-function mergeTevPevSources(sources) {
-  const groups = [];
-  const rest = [];
-  for (const source of sources) {
-    if (!isTevPevSource(source)) {
-      rest.push(source);
-      continue;
-    }
-    const matchingGroups = groups.filter((candidate) => candidate.some((member) => shouldMergeTevPev(source, member)));
-    if (!matchingGroups.length) {
-      groups.push([source]);
-      continue;
-    }
-    const group = matchingGroups[0];
-    group.push(source);
-    for (const extraGroup of matchingGroups.slice(1)) {
-      group.push(...extraGroup);
-      groups.splice(groups.indexOf(extraGroup), 1);
-    }
-  }
-  const merged = groups.map((members) => {
-    if (members.length === 1) return members[0];
-    const primary = primaryMergedSource(members);
-    const catalogs = [...new Set(members.map((source) => source.catalog).filter(Boolean))];
-    const aliases = [...new Set(members.flatMap(rawMergeAliases))];
-    const rankTs = Math.max(...members.map(bestCatalogTS));
-    const bestVisual = Math.max(...members.map((source) => source.visualWeight || 0));
-    return {
-      ...primary,
-      id: `tev-merge-${members.map((source) => source.id).sort().join("-")}`,
-      name: bestMergedName(members),
-      catalog: catalogs.join(" + "),
-      catalogRole: "merged",
-      layer: primary.layer || "tev",
-      class: primary.class || "TeV/PeV gamma-ray source",
-      mergedCatalogs: catalogs,
-      mergedSourceIds: members.map((source) => source.id),
-      mergedAliases: aliases,
-      mergedCount: members.length,
-      visualWeight: bestVisual,
-      match: {
-        ...(primary.match || {}),
-        rankTs,
-        nearestTs: Math.max(...members.map((source) => source.match?.nearestTs ?? 0)),
-      },
-    };
-  });
-  return [...rest, ...merged];
-}
-
 function batTypeGroup(source) {
   const type = foldedText(source.class || source.sourceClass || "");
   if (!type || type === "na") return "unknown";
@@ -944,22 +791,35 @@ function catalogTypeLabelFor(key) {
 }
 
 function baseCatalogSources() {
+  const baseKey = catalogBaseCacheKey();
+  if (catalogSourceCache.baseKey === baseKey) return catalogSourceCache.base;
   const preset = catalogPreset?.value || "off";
-  if (preset === "off") return [];
+  if (preset === "off") {
+    catalogSourceCache.baseKey = baseKey;
+    catalogSourceCache.base = [];
+    return catalogSourceCache.base;
+  }
   const aggregateOptions = aggregateLayerOptions();
   let out = [];
   if (aggregateOptions.length) {
-    ensureCatalogLayerDefaults();
     const activeOptions = aggregateOptions.filter((option) => catalogFilters.layers.has(option.key));
-    if (!activeOptions.length) return [];
+    if (!activeOptions.length) {
+      catalogSourceCache.baseKey = baseKey;
+      catalogSourceCache.base = [];
+      return catalogSourceCache.base;
+    }
     out = CATALOG_OVERLAYS.sources.filter((source) => activeOptions.some((option) => sourceMatchesLayerOption(source, option)));
-    return mergeTevPevSources(out);
+    catalogSourceCache.baseKey = baseKey;
+    catalogSourceCache.base = out;
+    return catalogSourceCache.base;
   }
   const spec = catalogPresetLayers();
   if (spec.catalog) out = CATALOG_OVERLAYS.sources.filter((s) => spec.catalog.has(s.catalog));
   else if (spec.layer) out = CATALOG_OVERLAYS.sources.filter((s) => spec.layer.has(s.layer));
   else if (spec.role) out = CATALOG_OVERLAYS.sources.filter((s) => spec.role.has(s.catalogRole));
-  return mergeTevPevSources(out);
+  catalogSourceCache.baseKey = baseKey;
+  catalogSourceCache.base = out;
+  return catalogSourceCache.base;
 }
 
 function catalogFluxMetric(source) {
@@ -1044,6 +904,17 @@ function catalogLayerSummary() {
   return `${active.length} layers`;
 }
 
+function catalogBaseCacheKey() {
+  ensureCatalogLayerDefaults();
+  const preset = catalogPreset?.value || "off";
+  const layers = [...catalogFilters.layers].sort().join(",");
+  return `${preset}|${layers}`;
+}
+
+function catalogFilteredCacheKey(baseKey) {
+  return `${baseKey}|${catalogFilters.batType}|${catalogFilters.fluxCut}`;
+}
+
 function batTypeCounts() {
   const counts = { all: 0 };
   for (const source of baseCatalogSources()) {
@@ -1090,8 +961,7 @@ function renderCatalogLayerFilters() {
 
   const counts = new Map(options.map((option) => {
     const matched = CATALOG_OVERLAYS.sources.filter((source) => sourceMatchesLayerOption(source, option));
-    const count = option.key === "tev" ? mergeTevPevSources(matched).length : matched.length;
-    return [option.key, count];
+    return [option.key, matched.length];
   }));
 
   const groups = [];
@@ -1139,7 +1009,13 @@ function syncCatalogSettingsState() {
 }
 
 function filteredCatalogSources() {
-  return applyCatalogSettings(baseCatalogSources());
+  const baseKey = catalogBaseCacheKey();
+  const filteredKey = catalogFilteredCacheKey(baseKey);
+  if (catalogSourceCache.filteredKey === filteredKey) return catalogSourceCache.filtered;
+  const filtered = applyCatalogSettings(baseCatalogSources());
+  catalogSourceCache.filteredKey = filteredKey;
+  catalogSourceCache.filtered = filtered;
+  return filtered;
 }
 
 function bestCatalogTS(s) {
@@ -1147,7 +1023,10 @@ function bestCatalogTS(s) {
 }
 
 function neutrinoAlerts() {
-  return CATALOG_OVERLAYS.sources.filter((s) => s.layer === "neutrino_alert");
+  if (!cachedNeutrinoAlerts) {
+    cachedNeutrinoAlerts = CATALOG_OVERLAYS.sources.filter((s) => s.layer === "neutrino_alert");
+  }
+  return cachedNeutrinoAlerts;
 }
 
 function catalogStyle(s) {
