@@ -30,7 +30,7 @@ const CATALOG_OVERLAYS = window.CATALOG_OVERLAYS || { metadata: { counts: {} }, 
 const MOLECULAR_CLOUD_SHAPES = window.MOLECULAR_CLOUD_SHAPES || { clouds: {} };
 
 filter.value = "known";
-if (catalogPreset) catalogPreset.value = "off";
+if (catalogPreset) catalogPreset.value = "allCatalogs";
 
 if (REFERENCE_SOURCES.length) {
   const markerIds = new Set(DATA.markers.map((m) => m.id));
@@ -634,6 +634,8 @@ const STEADY_LAYER_OPTIONS = [
   { key: "galaxy", label: "Galaxies", layer: new Set(["galaxy"]) },
   { key: "bat", label: "BAT survey", layer: new Set(["bat"]) },
   { key: "tev", label: "TeV", layer: new Set(["tev", "tev_snr", "tev_pwn"]) },
+  { key: "pevatron", label: "TeV/PeV", layer: new Set(["lhaaso", "hawc"]) },
+  { key: "mojave", label: "MOJAVE", layer: new Set(["mojave"]) },
   { key: "snr", label: "SNR", layer: new Set(["snr"]) },
   { key: "pulsar", label: "Pulsars", layer: new Set(["pulsar"]) },
   { key: "microquasar", label: "Microquasars", layer: new Set(["microquasar"]) },
@@ -644,6 +646,7 @@ const STEADY_LAYER_OPTIONS = [
 const TRANSIENT_LAYER_OPTIONS = [
   { key: "xray_transient", label: "X-ray", layer: new Set(["xray_transient"]) },
   { key: "gamma_variable", label: "Gamma", layer: new Set(["gamma_variable"]) },
+  { key: "gamma_flare", label: "1FLT", layer: new Set(["gamma_flare"]) },
   { key: "radio_transient", label: "Radio", layer: new Set(["radio_transient"]) },
   { key: "frb", label: "FRB", layer: new Set(["frb"]) },
   { key: "neutrino_alert", label: "IceCube", layer: new Set(["neutrino_alert"]) },
@@ -652,7 +655,7 @@ const TRANSIENT_LAYER_OPTIONS = [
 const DEFAULT_LAYER_KEYS = {
   steady: ["core", "agn", "galaxy", "bat"],
   transient: ["xray_transient", "gamma_variable"],
-  allCatalogs: ["core", "agn", "bat", "xray_transient", "gamma_variable"],
+  allCatalogs: ["core"],
 };
 
 function aggregateLayerOptions() {
@@ -752,6 +755,9 @@ function catalogTypeGroup(source) {
     if (type.includes("psr") || type.includes("pulsar")) return "compact";
     return "other";
   }
+  if (source.layer === "gamma_flare") return "gamma_flare";
+  if (source.layer === "lhaaso" || source.layer === "hawc") return "tev_pev";
+  if (source.layer === "mojave") return "radio_agn";
   if (source.layer === "frb") {
     return type.includes("repeating") ? "repeater" : "frb";
   }
@@ -777,6 +783,9 @@ function catalogTypeLabelFor(key) {
     repeater: "Repeater",
     gamma_variable: "Gamma",
     xray_transient: "X-ray",
+    gamma_flare: "Gamma flare",
+    tev_pev: "TeV/PeV",
+    radio_agn: "Radio AGN",
   }[key] || TRANSIENT_LAYER_LABELS[key] || key.replaceAll("_", " ");
 }
 
@@ -812,6 +821,10 @@ function catalogFluxMetric(source) {
     source.flux1000,
     source.energyFluxTeV,
     source.fluxTeV,
+    source.flux100,
+    source.ts100,
+    source.testStatistic,
+    source.nVlbaImages,
     source.batSnr,
     source.snr,
     source.maxSigma,
@@ -1013,13 +1026,17 @@ function catalogStyle(s) {
     tev: [80, 66, 132],
     tev_snr: [165, 76, 86],
     tev_pwn: [96, 78, 156],
+    lhaaso: [112, 75, 148],
+    hawc: [92, 73, 142],
     microquasar: [184, 101, 55],
     galaxy: [63, 139, 115],
     agn: [42, 112, 181],
     bat: [143, 89, 167],
     radio_transient: [46, 132, 139],
+    mojave: [38, 116, 154],
     xray_transient: [181, 92, 58],
     gamma_variable: [120, 86, 174],
+    gamma_flare: [126, 76, 158],
     frb: [199, 141, 43],
     fermi: [86, 96, 108],
   };
@@ -1030,6 +1047,10 @@ function catalogStyle(s) {
       ? "diamond"
       : s.layer === "tev" || s.layer === "tev_pwn"
         ? "square"
+        : s.layer === "lhaaso" || s.layer === "hawc"
+          ? "square"
+          : s.layer === "mojave"
+            ? "ring"
         : s.layer === "radio_transient"
           ? "ring"
           : s.layer === "xray_transient"
@@ -2277,6 +2298,33 @@ function typeParameterRows(source) {
       { label: "Associated pulsar", value: htmlEscape(source.associatedPulsar || "") },
     ];
   }
+  if (source.layer === "lhaaso") {
+    return [
+      { label: "Source class", value: htmlEscape(source.class || "") },
+      { label: "Component", value: htmlEscape(source.component || "") },
+      { label: "TS", value: Number.isFinite(source.testStatistic) ? catalogNumber(source.testStatistic, 1) : "" },
+      { label: "TS >100 TeV", value: Number.isFinite(source.ts100) ? catalogNumber(source.ts100, 1) : "" },
+      { label: "Extension r39", value: Number.isFinite(source.sizeDeg) ? `${catalogNumber(source.sizeDeg, 3)} deg` : "" },
+      { label: "Position error", value: Number.isFinite(source.posErrDeg) ? `${catalogNumber(source.posErrDeg, 3)} deg` : "" },
+      { label: "Spectral index", value: Number.isFinite(source.spectralIndex) ? catalogNumber(source.spectralIndex, 2) : "" },
+      { label: "Association", value: htmlEscape(source.association || "") },
+    ];
+  }
+  if (source.layer === "hawc") {
+    const energyRange = Number.isFinite(source.energyRangeMinTeV) && Number.isFinite(source.energyRangeMaxTeV)
+      ? `${catalogNumber(source.energyRangeMinTeV, 1)}-${catalogNumber(source.energyRangeMaxTeV, 1)} TeV`
+      : "";
+    return [
+      { label: "Source class", value: htmlEscape(source.class || "") },
+      { label: "TS", value: Number.isFinite(source.testStatistic) ? catalogNumber(source.testStatistic, 1) : "" },
+      { label: "Significance", value: Number.isFinite(source.significance) ? catalogNumber(source.significance, 2) : "" },
+      { label: "Radius", value: Number.isFinite(source.sizeDeg) ? `${catalogNumber(source.sizeDeg, 3)} deg` : "" },
+      { label: "Energy range", value: energyRange },
+      { label: "Flux at 7 TeV", value: Number.isFinite(source.fluxTeV) ? `${formatScientific(source.fluxTeV)} TeV^-1 cm^-2 s^-1` : "" },
+      { label: "Spectral index", value: Number.isFinite(source.spectralIndex) ? catalogNumber(source.spectralIndex, 2) : "" },
+      { label: "TeVCat", value: htmlEscape(source.tevcat || "") },
+    ];
+  }
   if (source.layer === "tev" || source.layer === "microquasar") {
     return [
       { label: "Source class", value: htmlEscape(source.class || source.sourceClass || "") },
@@ -2297,6 +2345,14 @@ function typeParameterRows(source) {
       { label: "Variability", value: Number.isFinite(source.variability) ? catalogNumber(source.variability, 2) : "" },
       { label: "4FGL source", value: source.sourceName && source.catalog === "4FGL-DR4" ? htmlEscape(source.sourceName) : "" },
       { label: "TeV association", value: htmlEscape(tevAssoc) },
+    ];
+  }
+  if (source.layer === "mojave") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || "") },
+      { label: "B1950 name", value: htmlEscape(source.b1950Name || "") },
+      { label: "VLBA images", value: Number.isFinite(source.nVlbaImages) ? catalogNumber(source.nVlbaImages, 0) : "" },
+      { label: "Other name", value: htmlEscape(source.otherNames || "") },
     ];
   }
   if (source.layer === "galaxy") {
@@ -2353,6 +2409,18 @@ function typeParameterRows(source) {
       { label: "Gamma energy flux", value: Number.isFinite(source.energyFlux100) ? `${formatScientific(source.energyFlux100)} erg cm^-2 s^-1` : "" },
       { label: "Gamma flux >1 GeV", value: Number.isFinite(source.flux1000) ? `${formatScientific(source.flux1000)} ph cm^-2 s^-1` : "" },
       { label: "TeV association", value: htmlEscape(source.assocTev || "") },
+    ];
+  }
+  if (source.layer === "gamma_flare") {
+    return [
+      { label: "Class", value: htmlEscape(source.class || "") },
+      { label: "Flares", value: Number.isFinite(source.nFlares) ? catalogNumber(source.nFlares, 0) : "" },
+      { label: "Peak time bin", value: Number.isFinite(source.timeBin) ? catalogNumber(source.timeBin, 1) : "" },
+      { label: "TS", value: Number.isFinite(source.testStatistic) ? catalogNumber(source.testStatistic, 1) : "" },
+      { label: "Photon flux", value: Number.isFinite(source.flux100) ? `${formatScientific(source.flux100)} ph cm^-2 s^-1` : "" },
+      { label: "Energy flux", value: Number.isFinite(source.energyFluxMeV) ? `${formatScientific(source.energyFluxMeV)} MeV cm^-2 s^-1` : "" },
+      { label: "Association", value: htmlEscape(source.association || "") },
+      { label: "Assoc prob.", value: Number.isFinite(source.associationProbability) ? catalogNumber(source.associationProbability, 2) : "" },
     ];
   }
   if (source.layer === "frb") {
@@ -2891,13 +2959,13 @@ document.getElementById("reset").onclick = () => {
   selected = DATA.markers.find((m) => m.id === "ngc1068") || DATA.markers[0];
   selectedCatalog = null;
   filter.value = "known";
-  if (catalogPreset) catalogPreset.value = "off";
+  if (catalogPreset) catalogPreset.value = "allCatalogs";
   catalogFilters.fluxCut = "all";
   catalogFilters.batType = "all";
-  catalogFilters.layers.clear();
-  catalogFilters.layerPreset = "off";
+  catalogFilters.layers = new Set(DEFAULT_LAYER_KEYS.allCatalogs);
+  catalogFilters.layerPreset = "allCatalogs";
   syncCatalogSettingsState();
-  setCatalogSettingsOpen(false);
+  setCatalogSettingsOpen(true);
   drawer.classList.add("closed");
   drawer.classList.remove("minimized");
   populateBright();
@@ -3000,5 +3068,6 @@ addEventListener("resize", resize);
 
 populateBright();
 syncCatalogSettingsState();
+setCatalogSettingsOpen(true);
 resize();
 

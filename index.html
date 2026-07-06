@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Neutrino Sky</title>
-  <link rel="stylesheet" href="styles.css?v=layer-empty1" />
+  <link rel="stylesheet" href="styles.css?v=catalog-default1" />
 </head>
 <body>
   <canvas id="sky"></canvas>
@@ -28,11 +28,11 @@
         <option value="dense">Dense/local map</option>
       </select>
       <select id="catalogPreset">
-        <option value="off" selected>Catalog off</option>
+        <option value="off">Catalog off</option>
         <option value="core">Core candidates</option>
         <option value="steady">Steady sources</option>
         <option value="transient">Transient / variable</option>
-        <option value="allCatalogs">All catalogs</option>
+        <option value="allCatalogs" selected>All catalogs</option>
         <option value="alerts">IceCube alerts</option>
         <option value="clouds">Molecular clouds</option>
       </select>
@@ -106,10 +106,10 @@
   <script src="smooth_raster.js"></script>
   <script src="milky_way_polygons.js"></script>
   <script src="reference_sources.js"></script>
-  <script src="catalog_overlays.js?v=layer-empty1"></script>
+  <script src="catalog_overlays.js?v=catalog-default1"></script>
   <script src="molecular_cloud_shapes.js?v=layer-empty1"></script>
   <script src="local_contours.js"></script>
   <script src="partial_dense.js"></script>
-  <script src="app.js?v=layer-empty1"></script>
+  <script src="app.js?v=catalog-default1"></script>
 </body>
 </html>
