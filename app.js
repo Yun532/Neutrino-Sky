@@ -647,7 +647,7 @@ const STEADY_LAYER_OPTIONS = [
 const TRANSIENT_LAYER_OPTIONS = [
   { key: "xray_transient", label: "X-ray", layer: new Set(["xray_transient"]) },
   { key: "gamma_variable", label: "Gamma", layer: new Set(["gamma_variable"]) },
-  { key: "gamma_flare", label: "1FLT", layer: new Set(["gamma_flare"]) },
+  { key: "gamma_flare", label: "Gamma flares", layer: new Set(["gamma_flare"]) },
   { key: "radio_transient", label: "Radio", layer: new Set(["radio_transient"]) },
   { key: "frb", label: "FRB", layer: new Set(["frb"]) },
   { key: "neutrino_alert", label: "IceCube", layer: new Set(["neutrino_alert"]) },
@@ -2449,12 +2449,17 @@ function typeParameterRows(source) {
     return [
       { label: "Class", value: htmlEscape(source.class || "") },
       { label: "Flares", value: Number.isFinite(source.nFlares) ? catalogNumber(source.nFlares, 0) : "" },
+      { label: "High-energy flares", value: Number.isFinite(source.nHighEnergyFlares) ? catalogNumber(source.nHighEnergyFlares, 0) : "" },
+      { label: "Negative flares", value: Number.isFinite(source.nNegativeFlares) ? catalogNumber(source.nNegativeFlares, 0) : "" },
       { label: "Peak time bin", value: Number.isFinite(source.timeBin) ? catalogNumber(source.timeBin, 1) : "" },
       { label: "TS", value: Number.isFinite(source.testStatistic) ? catalogNumber(source.testStatistic, 1) : "" },
+      { label: "95% position error", value: Number.isFinite(source.posErrDeg) ? `${catalogNumber(source.posErrDeg, 2)} deg` : "" },
       { label: "Photon flux", value: Number.isFinite(source.flux100) ? `${formatScientific(source.flux100)} ph cm^-2 s^-1` : "" },
       { label: "Energy flux", value: Number.isFinite(source.energyFluxMeV) ? `${formatScientific(source.energyFluxMeV)} MeV cm^-2 s^-1` : "" },
       { label: "Association", value: htmlEscape(source.association || "") },
+      { label: "Gamma assoc.", value: htmlEscape(source.gammaAssociation || "") },
       { label: "Assoc prob.", value: Number.isFinite(source.associationProbability) ? catalogNumber(source.associationProbability, 2) : "" },
+      { label: "ATel", value: Number.isFinite(source.atel) ? catalogNumber(source.atel, 0) : "" },
     ];
   }
   if (source.layer === "frb") {
