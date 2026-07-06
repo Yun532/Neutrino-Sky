@@ -266,20 +266,20 @@ button:hover, select:hover {
   vertical-align: -1px;
 }
 
-.star,
 .highlight-dot {
-  background: rgba(255, 255, 255, 0.34);
-  border: 2px solid rgba(31, 91, 157, 0.70);
-  border-radius: 50%;
+  width: 13px;
+  height: 13px;
+  background: rgba(139, 31, 53, 0.72);
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 56%, 79% 91%, 50% 70%, 21% 91%, 32% 56%, 2% 35%, 39% 35%);
   box-sizing: border-box;
 }
 
 .reference-dot {
-  width: 8px;
-  height: 8px;
-  margin-left: 2px;
-  background: rgba(43, 123, 187, 0.62);
-  border-radius: 50%;
+  width: 11px;
+  height: 11px;
+  margin-left: 1px;
+  background: rgba(139, 31, 53, 0.52);
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 56%, 79% 91%, 50% 70%, 21% 91%, 32% 56%, 2% 35%, 39% 35%);
 }
 
 .candidate-dot {

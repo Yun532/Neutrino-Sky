@@ -1393,11 +1393,25 @@ function drawSourceExtension(m, isSelected = false) {
   ctx.restore();
 }
 
+function traceStar(x, y, outerR, innerR, points = 5) {
+  const start = -Math.PI / 2;
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i += 1) {
+    const r = i % 2 === 0 ? outerR : innerR;
+    const a = start + (i * Math.PI) / points;
+    const px = x + Math.cos(a) * r;
+    const py = y + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
 function drawMarker(m) {
   const p = skyToXY(m.ra, m.dec);
   const role = markerRole(m);
   const isSelected = Boolean(selected && selected.id === m.id);
-  const baseR = role === "highlighted" ? 5.4 : role === "candidate" ? 2.5 : role === "galactic" ? 3.9 : 3.7;
+  const baseR = role === "highlighted" ? 6.2 : role === "candidate" ? 2.5 : role === "galactic" ? 4.9 : 4.6;
   const r = baseR * markerZoomScale() * devicePixelRatio;
   if (p.x < -40 || p.x > canvas.width + 40 || p.y < -40 || p.y > canvas.height + 40) return;
 
@@ -1405,21 +1419,25 @@ function drawMarker(m) {
   drawSourceExtension(m, isSelected);
   ctx.lineWidth = (role === "highlighted" ? 1.55 : 1.0) * devicePixelRatio;
   if (role === "highlighted") {
-    ctx.fillStyle = isSelected ? "rgba(255,255,255,0.38)" : "rgba(255,255,255,0.24)";
-    ctx.strokeStyle = isSelected ? "rgba(31,91,157,0.84)" : "rgba(31,91,157,0.62)";
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,255,252,0.78)";
+    ctx.lineWidth = 3.0 * devicePixelRatio;
+    traceStar(p.x, p.y, r, r * 0.46);
+    ctx.stroke();
+    ctx.fillStyle = isSelected ? "rgba(139,31,53,0.20)" : "rgba(139,31,53,0.10)";
+    ctx.strokeStyle = isSelected ? "rgba(139,31,53,0.92)" : "rgba(139,31,53,0.72)";
+    ctx.lineWidth = (role === "highlighted" ? 1.55 : 1.0) * devicePixelRatio;
+    traceStar(p.x, p.y, r, r * 0.46);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = isSelected ? "rgba(31,91,157,0.62)" : "rgba(31,91,157,0.42)";
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, Math.max(1.15 * devicePixelRatio, r * 0.20), 0, Math.PI * 2);
-    ctx.fill();
   } else if (role === "reference" || role === "galactic") {
-    ctx.fillStyle = role === "galactic" ? "rgba(92,84,168,0.52)" : "rgba(43,123,187,0.58)";
-    ctx.strokeStyle = "rgba(255,255,255,0.62)";
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,255,252,0.68)";
+    ctx.lineWidth = 2.25 * devicePixelRatio;
+    traceStar(p.x, p.y, r, r * 0.46);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(139,31,53,0.055)";
+    ctx.strokeStyle = "rgba(139,31,53,0.56)";
+    ctx.lineWidth = 1.0 * devicePixelRatio;
+    traceStar(p.x, p.y, r, r * 0.46);
     ctx.fill();
     ctx.stroke();
   } else {
@@ -1451,7 +1469,7 @@ function drawMarker(m) {
 
   if (showLabels && (role === "highlighted" || isSelected)) {
     ctx.font = `${12 * devicePixelRatio}px Segoe UI`;
-    ctx.fillStyle = role === "highlighted" ? "#1f5b9d" : "rgba(34,45,56,0.92)";
+    ctx.fillStyle = role === "highlighted" ? "#8b1f35" : "rgba(34,45,56,0.92)";
     ctx.fillText(m.name, p.x + 9 * devicePixelRatio, p.y - 8 * devicePixelRatio);
   }
   ctx.restore();
