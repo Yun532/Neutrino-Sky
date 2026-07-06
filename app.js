@@ -633,8 +633,7 @@ const STEADY_LAYER_OPTIONS = [
   { key: "agn", label: "AGN", layer: new Set(["agn"]) },
   { key: "galaxy", label: "Galaxies", layer: new Set(["galaxy"]) },
   { key: "bat", label: "BAT survey", layer: new Set(["bat"]) },
-  { key: "tev", label: "TeV", layer: new Set(["tev", "tev_snr", "tev_pwn"]) },
-  { key: "pevatron", label: "TeV/PeV", layer: new Set(["lhaaso", "hawc"]) },
+  { key: "tev", label: "TeV / PeV", layer: new Set(["tev", "tev_snr", "tev_pwn", "lhaaso", "hawc"]) },
   { key: "mojave", label: "MOJAVE", layer: new Set(["mojave"]) },
   { key: "snr", label: "SNR", layer: new Set(["snr"]) },
   { key: "pulsar", label: "Pulsars", layer: new Set(["pulsar"]) },
@@ -689,6 +688,161 @@ function sourceMatchesLayerOption(source, option) {
   if (option.layer && option.layer.has(source.layer)) return true;
   if (option.role && option.role.has(source.catalogRole)) return true;
   return false;
+}
+
+const TEV_PEV_LAYERS = new Set(["tev", "tev_snr", "tev_pwn", "lhaaso", "hawc"]);
+
+function isTevPevSource(source) {
+  return TEV_PEV_LAYERS.has(source.layer);
+}
+
+function mergeAliasToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b(1lhaaso|lhaaso|3hwc|hawc|hess|tevcat|tev)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, "");
+}
+
+function isUsefulMergeAlias(value) {
+  if (!value || value.length < 4) return false;
+  if (/^j\d{3,}/.test(value)) return value.length >= 7;
+  if (/^\d+$/.test(value)) return false;
+  return true;
+}
+
+function rawMergeAliases(source) {
+  const values = [];
+  const add = (value) => {
+    const cleanValue = String(value || "").trim();
+    if (!cleanValue || cleanValue === "--" || cleanValue.startsWith("--")) return;
+    values.push(cleanValue);
+  };
+  add(source.name);
+  add(source.sourceName);
+  add(source.association);
+  add(source.assocTev);
+  add(source.tevcat);
+  add(source.b1950Name);
+  String(source.otherNames || "")
+    .split(/[;,/]/)
+    .forEach(add);
+  return values;
+}
+
+function mergeAliasSet(source) {
+  const aliases = Array.isArray(source.mergedAliases) ? source.mergedAliases : rawMergeAliases(source);
+  return new Set(aliases.map(mergeAliasToken).filter(isUsefulMergeAlias));
+}
+
+function hasSharedMergeAlias(a, b) {
+  const aSet = mergeAliasSet(a);
+  if (!aSet.size) return false;
+  for (const token of mergeAliasSet(b)) {
+    if (aSet.has(token)) return true;
+  }
+  return false;
+}
+
+function sourceMergeRadius(source) {
+  const size = Number.isFinite(source.sizeDeg) ? source.sizeDeg : 0;
+  const ext = Number.isFinite(source.extensionDeg) ? source.extensionDeg : 0;
+  return clamp(Math.max(size, ext, 0.12), 0.12, 0.55);
+}
+
+function shouldMergeTevPev(a, b) {
+  const distance = sep(a, b);
+  if (distance <= 0.06) return true;
+  if (hasSharedMergeAlias(a, b) && distance <= Math.max(sourceMergeRadius(a), sourceMergeRadius(b), 0.45)) return true;
+  return false;
+}
+
+function displayNameScore(name) {
+  const text = String(name || "").trim();
+  if (!text) return -100;
+  const folded = foldedText(text);
+  let score = 0;
+  if (!/^((1?lhaaso|3hwc|hess|tev)\s*)?j\d/i.test(text)) score += 6;
+  if (folded.includes("crab") || folded.includes("vela") || folded.includes("cta") || folded.includes("mgro")) score += 2;
+  if (text.length <= 18) score += 1;
+  if (text.length > 28) score -= 1;
+  return score;
+}
+
+function bestMergedName(members) {
+  const candidates = [];
+  for (const source of members) {
+    candidates.push(source.association, source.tevcat, source.name, source.sourceName);
+  }
+  return candidates
+    .filter(Boolean)
+    .sort((a, b) => displayNameScore(b) - displayNameScore(a) || String(a).length - String(b).length)[0]
+    || catalogDisplayName(members[0]);
+}
+
+function primaryMergedSource(members) {
+  const catalogWeight = {
+    "LHAASO 1st catalog": 4,
+    "3HWC": 3.4,
+    "HGPS": 3,
+    "gamma-cat": 2.6,
+  };
+  return members.slice().sort((a, b) => {
+    const aScore = (catalogWeight[a.catalog] || 0) + clamp(bestCatalogTS(a), 0, 20) * 0.04 + clamp(a.visualWeight || 0, 0, 5) * 0.4;
+    const bScore = (catalogWeight[b.catalog] || 0) + clamp(bestCatalogTS(b), 0, 20) * 0.04 + clamp(b.visualWeight || 0, 0, 5) * 0.4;
+    return bScore - aScore;
+  })[0];
+}
+
+function mergeTevPevSources(sources) {
+  const groups = [];
+  const rest = [];
+  for (const source of sources) {
+    if (!isTevPevSource(source)) {
+      rest.push(source);
+      continue;
+    }
+    const matchingGroups = groups.filter((candidate) => candidate.some((member) => shouldMergeTevPev(source, member)));
+    if (!matchingGroups.length) {
+      groups.push([source]);
+      continue;
+    }
+    const group = matchingGroups[0];
+    group.push(source);
+    for (const extraGroup of matchingGroups.slice(1)) {
+      group.push(...extraGroup);
+      groups.splice(groups.indexOf(extraGroup), 1);
+    }
+  }
+  const merged = groups.map((members) => {
+    if (members.length === 1) return members[0];
+    const primary = primaryMergedSource(members);
+    const catalogs = [...new Set(members.map((source) => source.catalog).filter(Boolean))];
+    const aliases = [...new Set(members.flatMap(rawMergeAliases))];
+    const rankTs = Math.max(...members.map(bestCatalogTS));
+    const bestVisual = Math.max(...members.map((source) => source.visualWeight || 0));
+    return {
+      ...primary,
+      id: `tev-merge-${members.map((source) => source.id).sort().join("-")}`,
+      name: bestMergedName(members),
+      catalog: catalogs.join(" + "),
+      catalogRole: "merged",
+      layer: primary.layer || "tev",
+      class: primary.class || "TeV/PeV gamma-ray source",
+      mergedCatalogs: catalogs,
+      mergedSourceIds: members.map((source) => source.id),
+      mergedAliases: aliases,
+      mergedCount: members.length,
+      visualWeight: bestVisual,
+      match: {
+        ...(primary.match || {}),
+        rankTs,
+        nearestTs: Math.max(...members.map((source) => source.match?.nearestTs ?? 0)),
+      },
+    };
+  });
+  return [...rest, ...merged];
 }
 
 function batTypeGroup(source) {
@@ -756,7 +910,7 @@ function catalogTypeGroup(source) {
     return "other";
   }
   if (source.layer === "gamma_flare") return "gamma_flare";
-  if (source.layer === "lhaaso" || source.layer === "hawc") return "tev_pev";
+  if (source.layer === "lhaaso" || source.layer === "hawc") return "air_shower_gamma";
   if (source.layer === "mojave") return "radio_agn";
   if (source.layer === "frb") {
     return type.includes("repeating") ? "repeater" : "frb";
@@ -784,7 +938,7 @@ function catalogTypeLabelFor(key) {
     gamma_variable: "Gamma",
     xray_transient: "X-ray",
     gamma_flare: "Gamma flare",
-    tev_pev: "TeV/PeV",
+    air_shower_gamma: "LHAASO/HAWC",
     radio_agn: "Radio AGN",
   }[key] || TRANSIENT_LAYER_LABELS[key] || key.replaceAll("_", " ");
 }
@@ -793,17 +947,19 @@ function baseCatalogSources() {
   const preset = catalogPreset?.value || "off";
   if (preset === "off") return [];
   const aggregateOptions = aggregateLayerOptions();
+  let out = [];
   if (aggregateOptions.length) {
     ensureCatalogLayerDefaults();
     const activeOptions = aggregateOptions.filter((option) => catalogFilters.layers.has(option.key));
     if (!activeOptions.length) return [];
-    return CATALOG_OVERLAYS.sources.filter((source) => activeOptions.some((option) => sourceMatchesLayerOption(source, option)));
+    out = CATALOG_OVERLAYS.sources.filter((source) => activeOptions.some((option) => sourceMatchesLayerOption(source, option)));
+    return mergeTevPevSources(out);
   }
   const spec = catalogPresetLayers();
-  if (spec.catalog) return CATALOG_OVERLAYS.sources.filter((s) => spec.catalog.has(s.catalog));
-  if (spec.layer) return CATALOG_OVERLAYS.sources.filter((s) => spec.layer.has(s.layer));
-  if (spec.role) return CATALOG_OVERLAYS.sources.filter((s) => spec.role.has(s.catalogRole));
-  return [];
+  if (spec.catalog) out = CATALOG_OVERLAYS.sources.filter((s) => spec.catalog.has(s.catalog));
+  else if (spec.layer) out = CATALOG_OVERLAYS.sources.filter((s) => spec.layer.has(s.layer));
+  else if (spec.role) out = CATALOG_OVERLAYS.sources.filter((s) => spec.role.has(s.catalogRole));
+  return mergeTevPevSources(out);
 }
 
 function catalogFluxMetric(source) {
@@ -932,12 +1088,11 @@ function renderCatalogLayerFilters() {
   catalogLayerFilters.innerHTML = "";
   if (!options.length) return;
 
-  const counts = new Map(options.map((option) => [option.key, 0]));
-  for (const source of CATALOG_OVERLAYS.sources) {
-    for (const option of options) {
-      if (sourceMatchesLayerOption(source, option)) counts.set(option.key, (counts.get(option.key) || 0) + 1);
-    }
-  }
+  const counts = new Map(options.map((option) => {
+    const matched = CATALOG_OVERLAYS.sources.filter((source) => sourceMatchesLayerOption(source, option));
+    const count = option.key === "tev" ? mergeTevPevSources(matched).length : matched.length;
+    return [option.key, count];
+  }));
 
   const groups = [];
   const hasSteady = options.some((option) => STEADY_LAYER_OPTIONS.some((item) => item.key === option.key));
@@ -2469,6 +2624,8 @@ function sourceInfoSections(source, pix, shown) {
   const summary = infoSection("Summary", [
     { label: "Catalog", value: htmlEscape(source.catalog || "") },
     { label: "Type", value: htmlEscape(source.class || source.sourceClass || source.layer || "") },
+    { label: "Merged entries", value: Number.isFinite(source.mergedCount) ? catalogNumber(source.mergedCount, 0) : "" },
+    { label: "Also in", value: Array.isArray(source.mergedCatalogs) ? htmlEscape(source.mergedCatalogs.join(", ")) : "" },
     { label: "Rank TS", value: catalogNumber(bestCatalogTS(source)) },
     { label: "Position", value: `RA ${source.ra.toFixed(4)}deg, Dec ${source.dec.toFixed(4)}deg` },
     { label: "Candidate", value: candidate },
@@ -2484,6 +2641,7 @@ function sourceInfoSections(source, pix, shown) {
       { label: "Catalog name", value: source.sourceName && source.sourceName !== source.name ? htmlEscape(source.sourceName) : "" },
       { label: "Layer", value: htmlEscape(source.layer || "") },
       { label: "Role", value: htmlEscape(source.catalogRole || "") },
+      { label: "Merged source ids", value: Array.isArray(source.mergedSourceIds) ? htmlEscape(source.mergedSourceIds.join(", ")) : "" },
     ]),
     infoSection("Position", [
       { label: "RA", value: `${source.ra.toFixed(4)}deg` },
@@ -2568,6 +2726,7 @@ function catalogNameCandidates(source) {
   add(source.association);
   add(source.assocTev);
   add(source.tevcat);
+  if (Array.isArray(source.mergedAliases)) source.mergedAliases.forEach(add);
   String(source.otherNames || "")
     .split(/[;,]/)
     .forEach(add);
@@ -2791,6 +2950,7 @@ function openCatalogDrawer(source) {
       <span class="tag">${htmlEscape(source.catalog || "catalog")}</span>
       <span class="tag">${htmlEscape(source.catalogRole || "catalog")}</span>
       <span class="tag">${htmlEscape(source.layer || "source")}</span>
+      ${source.mergedCount ? `<span class="tag">${catalogNumber(source.mergedCount, 0)} entries</span>` : ""}
       ${source.class ? `<span class="tag">${htmlEscape(source.class)}</span>` : ""}
     </div>
     <div class="source-info">${sourceCompactSections(source, pix, shown)}</div>
