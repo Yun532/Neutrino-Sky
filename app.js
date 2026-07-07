@@ -1039,7 +1039,10 @@ function catalogStyle(s) {
     };
   }
   if (s.layer === "neutrino_alert") {
-    const signalness = clamp(s.signalness ?? 0, 0, 1);
+    const streamSignalness = String(s.stream || s.class || "").toLowerCase().includes("gold") ? 0.5
+      : String(s.stream || s.class || "").toLowerCase().includes("bronze") ? 0.3
+        : 0;
+    const signalness = clamp(s.signalness ?? s.alertPurity ?? streamSignalness, 0, 1);
     const energy = Math.log10(Math.max(s.energyTeV || 1, 1));
     const r = clamp(1.5 + signalness * 2.2 + energy * 0.22, 1.7, 5.2);
     const goldLike = signalness >= 0.5;
@@ -1524,6 +1527,59 @@ function drawCatalogSource(s) {
   ctx.restore();
 }
 
+function offsetByPositionAngle(raDeg, decDeg, paDeg, distanceDeg) {
+  const ra = deg2rad(raDeg);
+  const dec = deg2rad(decDeg);
+  const pa = deg2rad(paDeg);
+  const d = deg2rad(distanceDeg);
+  const sinDec2 = Math.sin(dec) * Math.cos(d) + Math.cos(dec) * Math.sin(d) * Math.cos(pa);
+  const dec2 = Math.asin(clamp(sinDec2, -1, 1));
+  const dra = Math.atan2(
+    Math.sin(pa) * Math.sin(d) * Math.cos(dec),
+    Math.cos(d) - Math.sin(dec) * Math.sin(dec2),
+  );
+  return {
+    ra: wrapRa(rad2deg(ra + dra)),
+    dec: rad2deg(dec2),
+  };
+}
+
+function drawJetDirection(source) {
+  if (!Number.isFinite(source.jetPaDeg)) return;
+  const start = skyToXY(source.ra, source.dec);
+  if (start.x < -40 || start.x > canvas.width + 40 || start.y < -40 || start.y > canvas.height + 40) return;
+  const guideSky = offsetByPositionAngle(source.ra, source.dec, source.jetPaDeg, 0.55);
+  const guide = skyToXYContinuous(guideSky.ra, guideSky.dec, source.ra);
+  const dx = guide.x - start.x;
+  const dy = guide.y - start.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 0.4 * devicePixelRatio || len > canvas.width * 0.20) return;
+  const ux = dx / len;
+  const uy = dy / len;
+  const screenLen = clamp(14 * devicePixelRatio * markerZoomScale(), 11 * devicePixelRatio, 24 * devicePixelRatio);
+  const end = {
+    x: start.x + ux * screenLen,
+    y: start.y + uy * screenLen,
+  };
+  const arrow = clamp(5.2 * devicePixelRatio * markerZoomScale(), 4.2 * devicePixelRatio, 8.0 * devicePixelRatio);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = selectedCatalog?.id === source.id ? "rgba(12,60,92,0.88)" : "rgba(15,83,119,0.68)";
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.lineWidth = (selectedCatalog?.id === source.id ? 1.9 : 1.35) * devicePixelRatio;
+  ctx.beginPath();
+  ctx.moveTo(start.x + ux * 3.8 * devicePixelRatio, start.y + uy * 3.8 * devicePixelRatio);
+  ctx.lineTo(end.x, end.y);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(end.x, end.y);
+  ctx.lineTo(end.x - ux * arrow - uy * arrow * 0.55, end.y - uy * arrow + ux * arrow * 0.55);
+  ctx.lineTo(end.x - ux * arrow + uy * arrow * 0.55, end.y - uy * arrow - ux * arrow * 0.55);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawCatalogExtension(s, isSelected = false) {
   if (!s.extension) return;
   drawSourceExtension({
@@ -1541,8 +1597,12 @@ function drawCatalogOverlays() {
   for (const s of sources) drawCatalogExtension(s, selectedCatalog?.id === s.id);
   if (selectedCatalog && !sources.some((s) => s.id === selectedCatalog.id)) drawCatalogExtension(selectedCatalog, true);
   for (const s of sources) drawCatalogSource(s);
+  for (const s of sources) drawJetDirection(s);
   for (const s of sources) drawn.add(s.id);
-  if (selectedCatalog && !drawn.has(selectedCatalog.id)) drawCatalogSource(selectedCatalog);
+  if (selectedCatalog && !drawn.has(selectedCatalog.id)) {
+    drawCatalogSource(selectedCatalog);
+    drawJetDirection(selectedCatalog);
+  }
 }
 
 function drawAlertOverlays() {
@@ -2320,10 +2380,16 @@ function typeParameterRows(source) {
   if (source.layer === "neutrino_alert") {
     return [
       { label: "Event MJD", value: Number.isFinite(source.mjd) ? catalogNumber(source.mjd, 3) : "" },
+      { label: "Event time", value: htmlEscape(source.eventTimeUtc || "") },
+      { label: "Stream", value: htmlEscape(source.stream || source.class || "") },
       { label: "Energy", value: Number.isFinite(source.energyTeV) ? `${catalogNumber(source.energyTeV, 0)} TeV` : "" },
       { label: "Signalness", value: Number.isFinite(source.signalness) ? catalogNumber(source.signalness, 2) : "" },
+      { label: "Stream purity", value: Number.isFinite(source.alertPurity) ? catalogNumber(source.alertPurity, 2) : "" },
+      { label: "FAR", value: Number.isFinite(source.farPerYear) ? `${catalogNumber(source.farPerYear, 3)} / yr` : "" },
       { label: "90% uncertainty", value: alertBounds },
       { label: "Nearest source", value: source.nearestSource && !source.nearestSource.startsWith("--") ? htmlEscape(source.nearestSource) : "" },
+      { label: "Source table", value: htmlEscape(source.sourceCatalog || "") },
+      { label: "GCN Circular", value: source.gcnUrl ? `<a href="${htmlEscape(source.gcnUrl)}">${htmlEscape(String(source.gcnCircular || source.gcnUrl))}</a>` : "" },
     ];
   }
   if (source.layer === "pulsar") {
@@ -2403,6 +2469,9 @@ function typeParameterRows(source) {
     return [
       { label: "Class", value: htmlEscape(source.class || "") },
       { label: "B1950 name", value: htmlEscape(source.b1950Name || "") },
+      { label: "Jet PA", value: Number.isFinite(source.jetPaDeg) ? `${catalogNumber(source.jetPaDeg, 1)} deg` : "" },
+      { label: "PA scatter", value: Number.isFinite(source.jetPaScatterDeg) ? `${catalogNumber(source.jetPaScatterDeg, 1)} deg` : "" },
+      { label: "Jet features", value: Number.isFinite(source.jetFeatureCount) ? catalogNumber(source.jetFeatureCount, 0) : "" },
       { label: "VLBA images", value: Number.isFinite(source.nVlbaImages) ? catalogNumber(source.nVlbaImages, 0) : "" },
       { label: "Other name", value: htmlEscape(source.otherNames || "") },
     ];
@@ -2565,6 +2634,9 @@ function sourceInfoSections(source, pix, shown) {
       { label: "Spectral index", value: Number.isFinite(source.spectralIndex) ? catalogNumber(source.spectralIndex, 2) : "" },
       { label: "Significance", value: Number.isFinite(source.significance) ? catalogNumber(source.significance, 2) : "" },
       { label: "Variability", value: Number.isFinite(source.variability) ? catalogNumber(source.variability, 2) : "" },
+      { label: "Jet PA", value: Number.isFinite(source.jetPaDeg) ? `${catalogNumber(source.jetPaDeg, 2)} deg` : "" },
+      { label: "Jet velocity PA", value: Number.isFinite(source.jetVelocityPaDeg) ? `${catalogNumber(source.jetVelocityPaDeg, 2)} deg` : "" },
+      { label: "Jet PA source", value: htmlEscape(source.jetPaSource || "") },
     ]),
     infoSection("Flux / Activity", [
       { label: "1 GHz flux", value: Number.isFinite(source.radioFluxJy1GHz) ? `${catalogNumber(source.radioFluxJy1GHz, 2)} Jy` : "" },
@@ -2577,10 +2649,16 @@ function sourceInfoSections(source, pix, shown) {
       { label: "TeV energy flux", value: Number.isFinite(source.energyFluxTeV) ? `${formatScientific(source.energyFluxTeV)} erg cm^-2 s^-1` : "" },
     ]),
     infoSection("IceCube Alert", [
+      { label: "Event time", value: htmlEscape(source.eventTimeUtc || "") },
       { label: "MJD", value: Number.isFinite(source.mjd) ? catalogNumber(source.mjd, 3) : "" },
+      { label: "Stream", value: htmlEscape(source.stream || "") },
       { label: "Energy", value: Number.isFinite(source.energyTeV) ? `${catalogNumber(source.energyTeV, 0)} TeV` : "" },
       { label: "Signalness", value: Number.isFinite(source.signalness) ? catalogNumber(source.signalness, 2) : "" },
+      { label: "Stream purity", value: Number.isFinite(source.alertPurity) ? catalogNumber(source.alertPurity, 2) : "" },
+      { label: "FAR", value: Number.isFinite(source.farPerYear) ? `${catalogNumber(source.farPerYear, 3)} / yr` : "" },
       { label: "Nearest source", value: source.nearestSource && !source.nearestSource.startsWith("--") ? htmlEscape(source.nearestSource) : "" },
+      { label: "Source table", value: htmlEscape(source.sourceCatalog || "") },
+      { label: "GCN Circular", value: source.gcnUrl ? `<a href="${htmlEscape(source.gcnUrl)}">${htmlEscape(String(source.gcnCircular || source.gcnUrl))}</a>` : "" },
       { label: "IceTop veto", value: source.crVeto ? "likely cosmic-ray shower background" : "" },
     ]),
     infoSection("Associations", [
@@ -2685,7 +2763,7 @@ function isMeaningfulNearby(item) {
   if (item.distance <= 0.35) return true;
   if (source.catalog === "core references") return true;
   if (source.match?.candidateName) return true;
-  if (source.layer === "neutrino_alert" && (source.signalness || 0) >= 0.5) return true;
+  if (source.layer === "neutrino_alert" && ((source.signalness ?? source.alertPurity) || 0) >= 0.5) return true;
   if (source.catalogRole === "parent" && source.layer !== "pulsar" && ts >= 1.5) return true;
   if ((source.visualWeight || 0) >= 1.6 && ts >= 2.0) return true;
   return ts >= 6.0;
