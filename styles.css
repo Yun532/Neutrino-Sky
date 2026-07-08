@@ -320,6 +320,36 @@ button:hover, select:hover {
   vertical-align: 3px;
 }
 
+.gc-marker {
+  position: relative;
+  width: 13px;
+  height: 13px;
+  border: 1.6px solid rgba(27, 37, 48, 0.78);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 252, 0.86);
+  box-sizing: border-box;
+}
+
+.gc-marker::before,
+.gc-marker::after {
+  content: "";
+  position: absolute;
+  background: rgba(27, 37, 48, 0.78);
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.gc-marker::before {
+  width: 17px;
+  height: 1.5px;
+}
+
+.gc-marker::after {
+  width: 1.5px;
+  height: 17px;
+}
+
 .alert-dot {
   width: 9px;
   height: 9px;

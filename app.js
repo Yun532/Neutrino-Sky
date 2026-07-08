@@ -78,6 +78,7 @@ const SKY_SMOOTH_DISPLAY_MAX = Math.max(2.5, SKY_CELL_DISPLAY_MAX * 0.65);
 const DETAIL_ZOOM = 5;
 const MIN_PARTIAL_DENSE_ROWS_FOR_MAP = 80;
 const HIGHLIGHTED_SOURCE_IDS = new Set(["ngc1068", "pks1424", "txs0506"]);
+const GALACTIC_CENTER = { ra: 266.41683, dec: -29.00781, label: "GC" };
 
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
@@ -1285,6 +1286,55 @@ function drawMilkyWayOverlay() {
   const plane = [];
   for (let l = 0; l <= 360; l += 1) plane.push(galToEq(l, 0));
   drawSkyPolyline(plane, "rgba(27, 37, 48, 0.82)", 1.75 * devicePixelRatio, [7 * devicePixelRatio, 4 * devicePixelRatio]);
+  drawGalacticCenterMarker();
+}
+
+function drawGalacticCenterMarker() {
+  const p = skyToXY(GALACTIC_CENTER.ra, GALACTIC_CENTER.dec);
+  if (p.x < -30 || p.x > canvas.width + 30 || p.y < -30 || p.y > canvas.height + 30) return;
+  const scale = clamp(markerZoomScale(), 0.85, 1.65);
+  const r = 5.2 * scale * devicePixelRatio;
+  const tick = 8.0 * scale * devicePixelRatio;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  ctx.strokeStyle = "rgba(255,255,252,0.88)";
+  ctx.lineWidth = 3.2 * devicePixelRatio;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  ctx.moveTo(p.x - tick, p.y);
+  ctx.lineTo(p.x - r * 0.42, p.y);
+  ctx.moveTo(p.x + r * 0.42, p.y);
+  ctx.lineTo(p.x + tick, p.y);
+  ctx.moveTo(p.x, p.y - tick);
+  ctx.lineTo(p.x, p.y - r * 0.42);
+  ctx.moveTo(p.x, p.y + r * 0.42);
+  ctx.lineTo(p.x, p.y + tick);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(27,37,48,0.82)";
+  ctx.lineWidth = 1.35 * devicePixelRatio;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  ctx.moveTo(p.x - tick, p.y);
+  ctx.lineTo(p.x - r * 0.42, p.y);
+  ctx.moveTo(p.x + r * 0.42, p.y);
+  ctx.lineTo(p.x + tick, p.y);
+  ctx.moveTo(p.x, p.y - tick);
+  ctx.lineTo(p.x, p.y - r * 0.42);
+  ctx.moveTo(p.x, p.y + r * 0.42);
+  ctx.lineTo(p.x, p.y + tick);
+  ctx.stroke();
+
+  ctx.font = `${11 * devicePixelRatio}px Segoe UI`;
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 3.0 * devicePixelRatio;
+  ctx.strokeStyle = "rgba(255,255,252,0.92)";
+  ctx.strokeText(GALACTIC_CENTER.label, p.x + 11 * devicePixelRatio, p.y - 10 * devicePixelRatio);
+  ctx.fillStyle = "rgba(27,37,48,0.90)";
+  ctx.fillText(GALACTIC_CENTER.label, p.x + 11 * devicePixelRatio, p.y - 10 * devicePixelRatio);
+  ctx.restore();
 }
 
 function star(x, y, outer, inner, n) {
