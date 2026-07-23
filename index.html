@@ -18,6 +18,7 @@
       <button id="zoomOut">-</button>
       <button id="toggleCells">Cells on</button>
       <button id="toggleSmooth">Smooth on</button>
+      <button id="togglePValue">Map: TS</button>
       <button id="toggleMilkyWay">Milky Way on</button>
       <button id="toggleAlerts">Alerts on</button>
       <button id="toggleLabels">Labels</button>
@@ -87,7 +88,7 @@
 
   <div class="hud brightest">
     <div class="panel-title">
-      Display TS Ranking
+      <span id="rankingTitle">Display TS Ranking</span>
       <button id="collapseList" class="mini-btn">-</button>
     </div>
     <div class="panel-note"></div>
@@ -104,6 +105,8 @@
   <script src="data.js"></script>
   <script src="healpix_cells.js"></script>
   <script src="smooth_ts.js"></script>
+  <script src="pvalue_map.js?v=pvalue101-2"></script>
+  <script src="pvalue_smooth_raster.js?v=pvalue101-2"></script>
   <script src="smooth_raster.js"></script>
   <script src="milky_way_polygons.js"></script>
   <script src="reference_sources.js"></script>
@@ -111,6 +114,6 @@
   <script src="molecular_cloud_shapes.js?v=layer-empty1"></script>
   <script src="local_contours.js"></script>
   <script src="partial_dense.js"></script>
-  <script src="app.js?v=galactic-center1"></script>
+  <script src="app.js?v=pvalue101-2"></script>
 </body>
 </html>

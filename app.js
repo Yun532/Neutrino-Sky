@@ -1,4 +1,4 @@
-﻿const DATA = window.SKY_DATA;
+const DATA = window.SKY_DATA;
 const canvas = document.getElementById("sky");
 const ctx = canvas.getContext("2d");
 const drawer = document.getElementById("drawer");
@@ -22,7 +22,9 @@ const skyReadout = document.getElementById("skyReadout");
 const CELLS = window.HEALPIX_CELLS_NSIDE64 || [];
 const LOCAL_CONTOURS = window.LOCAL_CONTOURS || {};
 const SMOOTH = window.SMOOTH_TS_NSIDE64 || null;
+const PVAL = window.SKY_PVALUE_MAP || null;
 const SMOOTH_RASTER = window.SMOOTH_RASTER_NSIDE64 || null;
+const PVALUE_SMOOTH_RASTER = window.PVALUE_SMOOTH_RASTER_NSIDE64 || null;
 const MILKY_WAY_POLYGONS = window.MILKY_WAY_POLYGONS || null;
 const REFERENCE_SOURCES = window.REFERENCE_SOURCES || [];
 const PARTIAL_DENSE = window.PARTIAL_DENSE || null;
@@ -63,6 +65,7 @@ if (PARTIAL_DENSE?.markers?.length) {
 
 let showLabels = true;
 let smoothSky = true;
+let skyMetricMode = "ts";
 let showMilkyWay = true;
 let showAlerts = true;
 let useCells = CELLS.length === DATA.allsky.length;
@@ -70,6 +73,7 @@ let selected = DATA.markers.find((m) => m.id === "ngc1068") || DATA.markers[0];
 const view = { zoom: 1, panX: 0, panY: 0, centerRa: 180 };
 const drag = { active: false, moved: false, x: 0, y: 0, panX: 0, panY: 0 };
 let smoothRasterCanvas = null;
+let pvalueSmoothRasterCanvas = null;
 let lastReadoutMs = 0;
 let selectedCatalog = null;
 const catalogFilters = { fluxCut: "all", batType: "all", layers: new Set(), layerPreset: "" };
@@ -504,6 +508,25 @@ function color(ts, maxTS = SKY_CELL_DISPLAY_MAX) {
   return `rgb(${Math.round(a[0] + (b[0] - a[0]) * f)},${Math.round(a[1] + (b[1] - a[1]) * f)},${Math.round(a[2] + (b[2] - a[2]) * f)})`;
 }
 
+function pvalueColor(negLog10P, maxValue = 2) {
+  const t = clamp(negLog10P / Math.max(0.5, maxValue), 0, 1);
+  const stops = [
+    [248, 249, 247],
+    [230, 237, 238],
+    [183, 205, 216],
+    [123, 157, 181],
+    [129, 101, 132],
+    [144, 63, 88],
+    [104, 40, 54],
+  ];
+  const x = t * (stops.length - 1);
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = stops[i];
+  const b = stops[Math.min(i + 1, stops.length - 1)];
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * f)},${Math.round(a[1] + (b[1] - a[1]) * f)},${Math.round(a[2] + (b[2] - a[2]) * f)})`;
+}
+
 function localScaleMax(rawMaxTS) {
   return Math.max(1, rawMaxTS);
 }
@@ -557,6 +580,52 @@ function skyColorMax() {
   return smoothSky ? SKY_SMOOTH_DISPLAY_MAX : SKY_CELL_DISPLAY_MAX;
 }
 
+function pvalueColorMax() {
+  return Math.max(1, PVAL?.negLog10PMax || 2);
+}
+
+function pvalueAtSky(source) {
+  if (!PVAL?.P?.length) return null;
+  const pix = nearestPixel(source.ra, source.dec);
+  const p = PVAL.P[pix.index];
+  const nlp = PVAL.negLog10P?.[pix.index];
+  return Number.isFinite(p) && Number.isFinite(nlp) ? { p, nlp, pix } : null;
+}
+
+function markerRankValue(marker) {
+  return skyMetricMode === "pvalue" ? (pvalueAtSky(marker)?.nlp ?? 0) : bestDisplayTS(marker);
+}
+
+function markerRankLabel(marker) {
+  if (skyMetricMode !== "pvalue") return `TS ${bestDisplayTS(marker).toFixed(1)}`;
+  const value = pvalueAtSky(marker);
+  return value ? `p ${value.p.toFixed(4)}` : "p --";
+}
+
+function skyMetricValueForPixel(index, pixel) {
+  if (skyMetricMode === "pvalue" && PVAL?.negLog10P?.length === DATA.allsky.length) {
+    return PVAL.negLog10P[index] ?? 0;
+  }
+  return displayTSForPixel(index, pixel);
+}
+
+function skyMetricColorForPixel(index, pixel) {
+  if (skyMetricMode === "pvalue" && PVAL?.negLog10P?.length === DATA.allsky.length) {
+    return pvalueColor(skyMetricValueForPixel(index, pixel), pvalueColorMax());
+  }
+  return color(displayTSForPixel(index, pixel), skyColorMax());
+}
+
+function skyMetricReadoutForPixel(index, pixel) {
+  if (skyMetricMode === "pvalue" && PVAL?.P?.length === DATA.allsky.length) {
+    const p = PVAL.P[index] ?? 1;
+    const nlp = PVAL.negLog10P?.[index] ?? -Math.log10(p);
+    return `p ${p.toFixed(4)} · -log10p ${nlp.toFixed(2)} · TS ${pixel.TS.toFixed(2)}`;
+  }
+  const shown = displayTSForPixel(index, pixel);
+  return `TS ${shown.toFixed(2)}`;
+}
+
 function getSmoothRasterCanvas() {
   if (smoothRasterCanvas || !SMOOTH_RASTER) return smoothRasterCanvas;
   const width = SMOOTH_RASTER.width;
@@ -592,6 +661,34 @@ function getSmoothRasterCanvas() {
   og.putImageData(image, 0, 0);
   smoothRasterCanvas = off;
   return smoothRasterCanvas;
+}
+
+function getPValueSmoothRasterCanvas() {
+  if (pvalueSmoothRasterCanvas || !PVALUE_SMOOTH_RASTER) return pvalueSmoothRasterCanvas;
+  const width = PVALUE_SMOOTH_RASTER.width;
+  const height = PVALUE_SMOOTH_RASTER.height;
+  const bin = atob(PVALUE_SMOOTH_RASTER.data_u16_le_b64);
+  const values = new Uint16Array(width * height);
+  for (let i = 0, j = 0; i < values.length; i += 1, j += 2) values[i] = bin.charCodeAt(j) | (bin.charCodeAt(j + 1) << 8);
+  const off = document.createElement("canvas");
+  off.width = width;
+  off.height = height;
+  const og = off.getContext("2d");
+  const image = og.createImageData(width, height);
+  const scale = PVALUE_SMOOTH_RASTER.scale || 1000;
+  const sentinel = PVALUE_SMOOTH_RASTER.sentinel ?? 65535;
+  for (let i = 0; i < values.length; i += 1) {
+    const out = i * 4;
+    if (values[i] === sentinel) continue;
+    const rgb = pvalueColor(values[i] / scale, pvalueColorMax()).match(/\d+/g).map(Number);
+    image.data[out] = rgb[0];
+    image.data[out + 1] = rgb[1];
+    image.data[out + 2] = rgb[2];
+    image.data[out + 3] = 188;
+  }
+  og.putImageData(image, 0, 0);
+  pvalueSmoothRasterCanvas = off;
+  return pvalueSmoothRasterCanvas;
 }
 
 function displayTSForPixel(index, pixel) {
@@ -1021,6 +1118,24 @@ function filteredCatalogSources() {
 
 function bestCatalogTS(s) {
   return s.match?.rankTs ?? s.match?.nearestTs ?? 0;
+}
+
+function catalogPValue(s) {
+  const index = s.match?.nearestPixel;
+  if (!Number.isInteger(index) || !PVAL?.P?.length) return null;
+  const p = PVAL.P[index];
+  const nlp = PVAL.negLog10P?.[index];
+  return Number.isFinite(p) && Number.isFinite(nlp) ? { p, nlp } : null;
+}
+
+function catalogRankValue(s) {
+  return skyMetricMode === "pvalue" ? (catalogPValue(s)?.nlp ?? 0) : bestCatalogTS(s);
+}
+
+function catalogRankLabel(s) {
+  if (skyMetricMode !== "pvalue") return `TS ${bestCatalogTS(s).toFixed(1)}`;
+  const value = catalogPValue(s);
+  return value ? `p ${value.p.toFixed(4)}` : "p --";
 }
 
 function neutrinoAlerts() {
@@ -1667,21 +1782,24 @@ function markerDrawOrder(markers) {
     const aw = weight(a);
     const bw = weight(b);
     if (aw !== bw) return aw - bw;
-    return bestDisplayTS(a) - bestDisplayTS(b);
+    return markerRankValue(a) - markerRankValue(b);
   });
 }
 
 function draw() {
   if (subTitle) {
     const catalogText = (catalogPreset?.value || "off") === "off" ? "" : ` · ${filteredCatalogSources().length} catalog sources`;
-    subTitle.textContent = `IceCube SkyLLH full-sky TS viewer${catalogText}`;
+    const metricText = skyMetricMode === "pvalue" ? `p-value preview, ${PVAL?.nTrials || 0} trials` : "TS viewer";
+    subTitle.textContent = `IceCube SkyLLH full-sky ${metricText}${catalogText}`;
   }
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#f4f5f1";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   withFrameClip(() => {
-    const raster = smoothSky ? getSmoothRasterCanvas() : null;
+    const raster = smoothSky
+      ? (skyMetricMode === "pvalue" ? getPValueSmoothRasterCanvas() : getSmoothRasterCanvas())
+      : null;
     if (raster) {
       const s = projectionScale();
       const c = frameCenter();
@@ -1718,7 +1836,7 @@ function draw() {
         }
         if (maxX < -8 || minX > canvas.width + 8 || maxY < -8 || minY > canvas.height + 8) continue;
         ctx.closePath();
-        ctx.fillStyle = color(displayTSForPixel(i, p), skyColorMax());
+        ctx.fillStyle = skyMetricColorForPixel(i, p);
         ctx.fill();
       }
     } else {
@@ -1726,9 +1844,9 @@ function draw() {
       for (const [i, p] of DATA.allsky.entries()) {
         const q = skyToXY(p.ra, p.dec);
         if (q.x < -dot || q.x > canvas.width + dot || q.y < -dot || q.y > canvas.height + dot) continue;
-        const shownTS = displayTSForPixel(i, p);
-        ctx.fillStyle = color(shownTS, skyColorMax());
-        ctx.globalAlpha = shownTS > 0 ? 0.58 : 0.08;
+        const metric = skyMetricValueForPixel(i, p);
+        ctx.fillStyle = skyMetricColorForPixel(i, p);
+        ctx.globalAlpha = metric > 0 ? 0.58 : 0.08;
         ctx.beginPath();
         ctx.arc(q.x, q.y, dot, 0, Math.PI * 2);
         ctx.fill();
@@ -1782,8 +1900,7 @@ function updateSkyReadout(event) {
     return;
   }
   const pix = nearestPixel(sky.ra, sky.dec);
-  const shown = displayTSForPixel(pix.index, pix);
-  skyReadout.textContent = `RA ${sky.ra.toFixed(3)}deg · Dec ${sky.dec.toFixed(3)}deg · TS ${shown.toFixed(2)}`;
+  skyReadout.textContent = `RA ${sky.ra.toFixed(3)}deg · Dec ${sky.dec.toFixed(3)}deg · ${skyMetricReadoutForPixel(pix.index, pix)}`;
 }
 
 function localPoints(m, radius) {
@@ -1805,8 +1922,10 @@ function localPoints(m, radius) {
   return {
     dense: false,
     points: DATA.allsky
-      .filter((p) => sep(m, p) <= radius * 1.2)
-      .map((p) => ({
+      .map((p, index) => ({ p, index }))
+      .filter(({ p }) => sep(m, p) <= radius * 1.2)
+      .map(({ p, index }) => ({
+        index,
         x: wrapSigned(p.ra - m.ra) * Math.cos(deg2rad(m.dec)),
         y: p.dec - m.dec,
         TS: p.TS,
@@ -2195,10 +2314,12 @@ function renderLocalCanvas(m) {
     return;
   }
 
+  const showLocalPValue = skyMetricMode === "pvalue" && !pack.dense && PVAL?.negLog10P?.length === DATA.allsky.length;
+  const valueForLocalPoint = (p) => showLocalPValue ? (PVAL.negLog10P[p.index] ?? 0) : p.TS;
   const centerPoint = pts.slice().sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))[0];
   const centerTS = centerPoint?.TS ?? rawMaxTS;
   const fallbackStats = pack.dense ? null : localTSStats(pts);
-  const maxTS = fallbackScaleMax(rawMaxTS, pack.dense, centerTS, fallbackStats);
+  const maxTS = showLocalPValue ? pvalueColorMax() : fallbackScaleMax(rawMaxTS, pack.dense, centerTS, fallbackStats);
 
   if (pts.length) {
     const raster = document.createElement("canvas");
@@ -2223,7 +2344,7 @@ function renderLocalCanvas(m) {
           if (d2 < nearest) nearest = d2;
           if (d2 > support * support) continue;
           const w = Math.exp(-0.5 * d2 / (sigma * sigma));
-          num += w * p.TS;
+          num += w * valueForLocalPoint(p);
           den += w;
         }
         const outsideSupport = Math.sqrt(nearest) > maxSupport || (pack.dense && Math.hypot(x, y) > maxDataRadius + 0.08);
@@ -2235,8 +2356,8 @@ function renderLocalCanvas(m) {
           image.data[idx + 3] = 255;
           continue;
         }
-        const ts = num / den;
-        const rgb = color(ts, maxTS).match(/\d+/g).map(Number);
+        const metric = num / den;
+        const rgb = (showLocalPValue ? pvalueColor(metric, maxTS) : color(metric, maxTS)).match(/\d+/g).map(Number);
         image.data[idx + 0] = rgb[0];
         image.data[idx + 1] = rgb[1];
         image.data[idx + 2] = rgb[2];
@@ -2293,7 +2414,7 @@ function renderLocalCanvas(m) {
   g.arc(center.x, center.y, 2.6, 0, Math.PI * 2);
   g.fill();
 
-  const bestPoint = pts.slice().sort((a, b) => b.TS - a.TS)[0];
+  const bestPoint = pts.slice().sort((a, b) => valueForLocalPoint(b) - valueForLocalPoint(a))[0];
   if (bestPoint) {
     const q = toXY(bestPoint.x, bestPoint.y);
     g.strokeStyle = "#8b1f35";
@@ -2306,15 +2427,19 @@ function renderLocalCanvas(m) {
     g.stroke();
     g.fillStyle = "#8b1f35";
     g.font = "12px Segoe UI";
-    g.fillText(`best ${bestPoint.TS.toFixed(1)}`, q.x + 9, q.y - 7);
+    const bestLabel = showLocalPValue ? `best p ${(PVAL.P[bestPoint.index] ?? 1).toFixed(4)}` : `best ${bestPoint.TS.toFixed(1)}`;
+    g.fillText(bestLabel, q.x + 9, q.y - 7);
   }
 
   g.fillStyle = "rgba(28,38,48,0.92)";
   g.font = "18px Segoe UI";
-  g.fillText(`${m.name} local TS`, margin, 30);
+  g.fillText(`${m.name} local ${showLocalPValue ? "p-value" : "TS"}`, margin, 30);
   drawLocalAlertCount(g, c, margin, plot, localAlerts.length);
   g.font = "13px Segoe UI";
-  g.fillText(`${pack.dense ? "SkyLLH dense smooth raster" : "nside64 smooth raster"}, ${fallbackScaleLabel(rawMaxTS, pack.dense, centerTS, fallbackStats)}`, margin, c.height - 22);
+  const localCaption = showLocalPValue
+    ? "nside64 p-value visual smooth raster"
+    : `${pack.dense ? "SkyLLH dense smooth raster" : "nside64 smooth raster"}, ${fallbackScaleLabel(rawMaxTS, pack.dense, centerTS, fallbackStats)}`;
+  g.fillText(localCaption, margin, c.height - 22);
   g.textAlign = "center";
   g.fillText("dRA cos Dec (deg, +left)", margin + plot / 2, c.height - 8);
   g.textAlign = "start";
@@ -2330,15 +2455,15 @@ function renderLocalCanvas(m) {
   const barY = margin;
   const barH = plot;
   for (let i = 0; i < barH; i += 1) {
-    const ts = maxTS * (1 - i / barH);
-    g.fillStyle = color(ts, maxTS);
+    const metric = maxTS * (1 - i / barH);
+    g.fillStyle = showLocalPValue ? pvalueColor(metric, maxTS) : color(metric, maxTS);
     g.fillRect(barX, barY + i, 16, 1);
   }
   g.strokeStyle = "rgba(48,61,72,0.42)";
   g.strokeRect(barX, barY, 16, barH);
   g.fillStyle = "rgba(48,61,72,0.88)";
   g.font = "12px Segoe UI";
-  g.fillText(maxTS.toFixed(1), barX - 6, barY - 8);
+  g.fillText(maxTS.toFixed(2), barX - 6, barY - 8);
   g.fillText("0", barX + 3, barY + barH + 16);
   setupLocalCoordinateReadout(c, m, {
     margin,
@@ -2993,13 +3118,15 @@ function openCatalogDrawer(source) {
 function populateBright() {
   const box = document.getElementById("brightList");
   const note = document.querySelector(".brightest .panel-note");
+  const title = document.getElementById("rankingTitle");
+  if (title) title.textContent = skyMetricMode === "pvalue" ? "Display p-value Ranking" : "Display TS Ranking";
   box.innerHTML = "";
   if ((catalogPreset?.value || "off") !== "off") {
     const sources = filteredCatalogSources()
       .slice()
       .sort((a, b) => {
-        const ats = bestCatalogTS(a);
-        const bts = bestCatalogTS(b);
+        const ats = catalogRankValue(a);
+        const bts = catalogRankValue(b);
         if (ats !== bts) return bts - ats;
         return (b.visualWeight || 0) - (a.visualWeight || 0);
       });
@@ -3018,7 +3145,7 @@ function populateBright() {
       const assoc = s.layer === "molecular_cloud"
         ? "Planck TAU353 contour"
         : (match.candidateName ? `${match.candidateName}, ${catalogNumber(match.candidateSepDeg, 2)}deg` : `nearest pixel ${catalogNumber(match.nearestSepDeg, 2)}deg`);
-      row.innerHTML = `<div>#${i + 1}</div><div>${htmlEscape(s.name || s.sourceName || s.id)}<div class="meta">${htmlEscape(s.catalog)} / ${htmlEscape(s.layer)} · ${assoc}</div></div><div>TS ${bestCatalogTS(s).toFixed(1)}</div>`;
+      row.innerHTML = `<div>#${i + 1}</div><div>${htmlEscape(s.name || s.sourceName || s.id)}<div class="meta">${htmlEscape(s.catalog)} / ${htmlEscape(s.layer)} · ${assoc}</div></div><div>${catalogRankLabel(s)}</div>`;
       row.onclick = () => openCatalogDrawer(s);
       box.appendChild(row);
     }
@@ -3026,7 +3153,7 @@ function populateBright() {
   }
   if (note) note.textContent = filter.options[filter.selectedIndex].text;
   const ranked = filteredMarkers()
-    .sort((a, b) => bestDisplayTS(b) - bestDisplayTS(a));
+    .sort((a, b) => markerRankValue(b) - markerRankValue(a));
   if (!ranked.length) {
     box.innerHTML = `<div class="empty-list">No markers in this view</div>`;
     return;
@@ -3036,7 +3163,7 @@ function populateBright() {
     row.className = "bright-row";
     const role = markerRole(m);
     const type = DATA.dense[m.id]?.partial ? "partial dense" : (DATA.dense[m.id] || LOCAL_CONTOURS[m.id] ? `${role} dense` : role);
-    row.innerHTML = `<div>#${i + 1}</div><div>${m.name}<div class="meta">${type} 路 RA ${m.ra.toFixed(1)} Dec ${m.dec.toFixed(1)}</div></div><div>TS ${bestDisplayTS(m).toFixed(1)}</div>`;
+    row.innerHTML = `<div>#${i + 1}</div><div>${m.name}<div class="meta">${type} 路 RA ${m.ra.toFixed(1)} Dec ${m.dec.toFixed(1)}</div></div><div>${markerRankLabel(m)}</div>`;
     row.onclick = () => openDrawer(m);
     box.appendChild(row);
   }
@@ -3148,6 +3275,8 @@ document.getElementById("reset").onclick = () => {
   view.panY = 0;
   selected = DATA.markers.find((m) => m.id === "ngc1068") || DATA.markers[0];
   selectedCatalog = null;
+  skyMetricMode = "ts";
+  if (togglePValue) togglePValue.textContent = "Map: TS";
   filter.value = "known";
   if (catalogPreset) catalogPreset.value = "allCatalogs";
   catalogFilters.fluxCut = "all";
@@ -3173,6 +3302,20 @@ document.getElementById("toggleSmooth").onclick = () => {
   document.getElementById("toggleSmooth").textContent = smoothSky ? "Smooth on" : "Smooth off";
   draw();
 };
+const togglePValue = document.getElementById("togglePValue");
+if (togglePValue) {
+  if (!PVAL?.negLog10P?.length) {
+    togglePValue.disabled = true;
+    togglePValue.textContent = "Map: TS";
+  } else {
+    togglePValue.onclick = () => {
+      skyMetricMode = skyMetricMode === "ts" ? "pvalue" : "ts";
+      togglePValue.textContent = skyMetricMode === "pvalue" ? "Map: p-value" : "Map: TS";
+      draw();
+      populateBright();
+    };
+  }
+}
 document.getElementById("toggleMilkyWay").onclick = () => {
   showMilkyWay = !showMilkyWay;
   document.getElementById("toggleMilkyWay").textContent = showMilkyWay ? "Milky Way on" : "Milky Way off";
